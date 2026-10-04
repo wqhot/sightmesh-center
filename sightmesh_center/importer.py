@@ -170,10 +170,27 @@ def build(source, output, config):
                 'entity_count': len(entities), 'triangle_count': sum(len(e['triangles']) for e in entities),
                 'capabilities': {'surface': True, 'raycast': True, 'visibility': 'occluded_or_unknown',
                                  'occupancy': False, 'esdf': False, 'road_topology': False, 'reachability': False}}
+    # 将显示资源固化到同一版本，服务运行时不再依赖 sim 工作区。
+    assets = {}
+    for path in sorted(source.rglob('*')):
+        if path.is_file():
+            if source not in path.resolve().parents:
+                raise ValueError('Cesium 资源超出源目录')
+            assets[path.relative_to(source).as_posix()] = path.read_bytes()
+    if assets['placement.json'] != placement_bytes or any(
+            hashlib.sha256(assets[name]).hexdigest() != checksum
+            for name, checksum in sources.items()):
+        raise ValueError('导入过程中源地图发生变化，请重试')
+    manifest['cesium_assets'] = {
+        name: hashlib.sha256(content).hexdigest() for name, content in assets.items()}
     revision = hashlib.sha256(encode(manifest)).hexdigest()
     manifest['map_revision'] = revision
     destination = output/revision
     destination.mkdir(parents=True, exist_ok=True)
+    for name, content in assets.items():
+        target = destination/'cesium'/name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
     (destination/'geometry.json.gz').write_bytes(geometry)
     (destination/'manifest.json').write_bytes(encode(manifest)+b'\n')
     return destination

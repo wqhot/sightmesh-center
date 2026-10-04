@@ -5,7 +5,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+
+from .cesium import CesiumAssets
 
 from .geometry import Mesh, mul, norm, sub
 from .importer import encode
@@ -44,6 +46,7 @@ class Map:
         if hashlib.sha256(self.geometry_bytes).hexdigest() != self.manifest['geometry_sha256']:
             raise ValueError('Geometry checksum mismatch')
         self.mesh = Mesh(json.loads(gzip.decompress(self.geometry_bytes))['entities'])
+        self.cesium = CesiumAssets(directory, self.manifest)
 
     def query(self, operation, data):
         if not isinstance(data, dict):
@@ -95,11 +98,13 @@ class Map:
 
 def make_server(map_data, bind='127.0.0.1', port=8080):
     class Handler(BaseHTTPRequestHandler):
-        def reply(self, status, body, mime='application/json', head=False):
+        def reply(self, status, body, mime='application/json', head=False, content_encoding=None):
             payload = body if isinstance(body, bytes) else encode(body)
             self.send_response(status)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(payload)))
+            if content_encoding:
+                self.send_header('Content-Encoding', content_encoding)
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             if not head:
@@ -107,7 +112,19 @@ def make_server(map_data, bind='127.0.0.1', port=8080):
 
         def do_GET(self):
             path = urlsplit(self.path).path
-            if path == '/healthz':
+            if path.startswith('/cesium/'):
+                name = unquote(path[len('/cesium/'):])
+                content = map_data.cesium.files.get(name)
+                if content is None:
+                    self.reply(404, {'error': 'unknown Cesium asset'}, head=self.command == 'HEAD')
+                    return
+                suffix = Path(name).suffix
+                mime = {'.json': 'application/json', '.glb': 'model/gltf-binary',
+                        '.terrain': 'application/vnd.quantized-mesh', '.png': 'image/png',
+                        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}.get(suffix, 'application/octet-stream')
+                self.reply(200, content, mime, head=self.command == 'HEAD',
+                           content_encoding='gzip' if suffix == '.terrain' else None)
+            elif path == '/healthz':
                 self.reply(200, {'status': 'ok', 'map_revision': map_data.manifest['map_revision']}, head=self.command == 'HEAD')
             elif path == '/v1/map':
                 self.reply(200, map_data.manifest_bytes, head=self.command == 'HEAD')

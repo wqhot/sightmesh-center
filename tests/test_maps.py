@@ -2,6 +2,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import random
 import struct
@@ -11,6 +12,7 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from sightmesh_center.cesium import CesiumAssets
 from sightmesh_center.geometry import Mesh, closest, norm, sub
 from sightmesh_center.importer import build, encode, node_matrix, read_glb
 from sightmesh_center.service import Map, RevisionConflict, make_server
@@ -113,6 +115,7 @@ class ServiceTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.directory = Path(self.temp.name)
         self.map = package(self.directory)
+        self.assertEqual(self.map.cesium.files, {})
         self.context = {'map_revision': self.map.manifest['map_revision'],
                         'coordinate_frame': 'local_ENU', 'query_time': 1234.5}
 
@@ -186,9 +189,76 @@ class ServiceTests(unittest.TestCase):
             server.server_close()
 
 
+class CesiumServiceTests(unittest.TestCase):
+    def test_snapshot_http_and_integrity_without_sim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            data = package(directory)
+            anchor = {'longitude_deg': 116.3979, 'latitude_deg': 39.9087, 'ellipsoid_height_m': 0}
+            files = {
+                'placement.json': encode({'anchor': anchor, 'files': {
+                    'building_tileset': 'buildings/tileset.json',
+                    'terrain_provider': 'terrain-provider/layer.json'}}),
+                'buildings/tileset.json': encode({'asset': {'version': '1.1'}}),
+                'buildings/test.glb': b'glTF-test',
+                'terrain-provider/layer.json': encode({'tiles': ['{z}/{x}/{y}.terrain?v=1']}),
+                'terrain-provider/0/0/0.terrain': gzip.compress(b'test-terrain', mtime=0),
+            }
+            for name, content in files.items():
+                target = directory/'cesium'/name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            manifest = dict(data.manifest)
+            manifest.pop('map_revision')
+            manifest.update(anchor=anchor, cesium_assets={
+                name: hashlib.sha256(content).hexdigest() for name, content in files.items()})
+            manifest['map_revision'] = hashlib.sha256(encode(manifest)).hexdigest()
+            (directory/'manifest.json').write_bytes(encode(manifest))
+            data = Map(directory)
+            env = data.cesium.render_environment('http://localhost:8080/')
+            self.assertEqual(env['SIGHTMESH_TERRAIN_URL'], 'http://localhost:8080/cesium/terrain-provider')
+            self.assertEqual(float(env['SIGHTMESH_ORIGIN_LAT']), anchor['latitude_deg'])
+            with self.assertRaises(ValueError):
+                data.cesium.render_environment('file:///tmp')
+            server = make_server(data, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f'http://127.0.0.1:{server.server_port}'
+            try:
+                for name, content in files.items():
+                    with urlopen(base+'/cesium/'+name+'?v=1') as response:
+                        self.assertEqual(response.read(), content)
+                        self.assertEqual(response.headers['Access-Control-Allow-Origin'], '*')
+                        self.assertEqual(response.headers.get('Content-Encoding'),
+                                         'gzip' if name.endswith('.terrain') else None)
+                tile = base+'/cesium/terrain-provider/0/0/0.terrain?v=1'
+                with urlopen(Request(tile, method='HEAD')) as response:
+                    self.assertEqual(response.headers['Content-Encoding'], 'gzip')
+                    self.assertEqual(response.read(), b'')
+                for name in ('%2e%2e/manifest.json', 'missing.terrain', ''):
+                    with self.assertRaises(HTTPError) as caught:
+                        urlopen(base+'/cesium/'+name)
+                    self.assertEqual(caught.exception.code, 404)
+                    self.assertIsNone(caught.exception.headers.get('Content-Encoding'))
+                    caught.exception.close()
+                (directory/'cesium/buildings/test.glb').write_bytes(b'changed')
+                with urlopen(base+'/cesium/buildings/test.glb') as response:
+                    self.assertEqual(response.headers['Content-Type'], 'model/gltf-binary')
+                    self.assertEqual(response.read(), files['buildings/test.glb'])
+                with self.assertRaisesRegex(ValueError, '校验失败'):
+                    Map(directory)
+                with self.assertRaises(ValueError):
+                    CesiumAssets(directory, {'cesium_assets': {'../manifest.json': 'invalid'}})
+            finally:
+                server.shutdown()
+                thread.join()
+                server.server_close()
+
+
 class SimIntegrationTests(unittest.TestCase):
     def test_current_sim_import_and_coordinates(self):
-        source = Path(__file__).resolve().parents[2]/'sightmesh-sim/maps/industrial-park/cesium'
+        source = Path(os.environ.get('SIGHTMESH_SIM_MAP', str(
+            Path(__file__).resolve().parents[2]/'sightmesh-sim/maps/industrial-park/cesium')))
         if not source.exists():
             self.skipTest('Sibling sim map not available')
         config = json.loads((Path(__file__).resolve().parents[1]/'config/industrial-park.json').read_text())
@@ -197,6 +267,49 @@ class SimIntegrationTests(unittest.TestCase):
             self.assertEqual(build(source, temp, config), output)
             data = Map(output)
             self.assertEqual(data.manifest['entity_count'], 461)
+            self.assertEqual(data.cesium.files['placement.json'], (source/'placement.json').read_bytes())
+            env = data.cesium.render_environment('http://127.0.0.1:8080/')
+            self.assertEqual(env['SIGHTMESH_TILESET_URL'], 'http://127.0.0.1:8080/cesium/buildings/tileset.json')
+            self.assertEqual(env['SIGHTMESH_TERRAIN_URL'], 'http://127.0.0.1:8080/cesium/terrain-provider')
+            self.assertEqual(float(env['SIGHTMESH_ORIGIN_LON']), data.manifest['anchor']['longitude_deg'])
+            for invalid in ('file:///tmp', 'http://localhost?x=1', 'http://localhost#map'):
+                with self.assertRaises(ValueError):
+                    data.cesium.render_environment(invalid)
+            server = make_server(data, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f'http://127.0.0.1:{server.server_port}'
+            try:
+                with urlopen(base+'/cesium/buildings/tileset.json') as response:
+                    self.assertEqual(response.read(), (source/'buildings/tileset.json').read_bytes())
+                tile = '/cesium/terrain-provider/0/0/0.terrain?v=1.0.0'
+                with urlopen(base+tile) as response:
+                    self.assertEqual(response.headers['Content-Encoding'], 'gzip')
+                    self.assertEqual(response.headers['Content-Type'], 'application/vnd.quantized-mesh')
+                    self.assertGreater(len(gzip.decompress(response.read())), 88)
+                with urlopen(Request(base+tile, method='HEAD')) as response:
+                    self.assertEqual(response.headers['Content-Encoding'], 'gzip')
+                    self.assertEqual(response.read(), b'')
+                for missing in ('/cesium/terrain-provider/99/0/0.terrain',
+                                '/cesium/%2e%2e/manifest.json', '/cesium/'):
+                    with self.assertRaises(HTTPError) as error:
+                        urlopen(base+missing)
+                    self.assertEqual(error.exception.code, 404)
+                    self.assertIsNone(error.exception.headers.get('Content-Encoding'))
+                    error.exception.close()
+                glb = output/'cesium/buildings/industrial_park_rebuilt.glb'
+                saved = glb.read_bytes()
+                glb.write_bytes(b'changed')
+                with urlopen(base+'/cesium/buildings/industrial_park_rebuilt.glb') as response:
+                    self.assertEqual(response.headers['Content-Type'], 'model/gltf-binary')
+                    self.assertEqual(response.read(), saved)
+                with self.assertRaisesRegex(ValueError, '校验失败'):
+                    CesiumAssets(output, data.manifest)
+                glb.write_bytes(saved)
+            finally:
+                server.shutdown()
+                thread.join()
+                server.server_close()
             context = {'map_revision': data.manifest['map_revision'], 'coordinate_frame': 'local_ENU', 'query_time': 0}
             result = data.query('surface', dict(context, point=[0, 0, 1], semantics=['terrain'], min_normal_up=0.5))
             self.assertEqual(result['candidates'][0]['point'], (0, 0, 0))

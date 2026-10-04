@@ -1,4 +1,5 @@
 import argparse
+import shlex
 from pathlib import Path
 from . import importer
 from .service import Map, make_server
@@ -15,6 +16,10 @@ def main():
     serve.add_argument('--map', type=Path, required=True)
     serve.add_argument('--bind', default='127.0.0.1')
     serve.add_argument('--port', type=int, default=8080)
+    serve.add_argument('--base-url', help='渲染设备可访问的中心地址；启动时输出渲染配置')
+    render = sub.add_parser('render-env', help='从地图版本生成渲染设备的环境变量')
+    render.add_argument('--map', type=Path, required=True)
+    render.add_argument('--base-url', required=True)
     args = parser.parse_args()
     try:
         if args.command == 'import':
@@ -22,6 +27,11 @@ def main():
             print(importer.build(args.source, args.output, json.loads(args.config.read_text(encoding='utf-8'))))
         else:
             data = Map(args.map)
+            if args.command == 'render-env' or args.base_url:
+                for name, value in data.cesium.render_environment(args.base_url).items():
+                    print(f'export {name}={shlex.quote(value)}', flush=True)
+            if args.command == 'render-env':
+                return
             with make_server(data, args.bind, args.port) as server:
                 print(f'Map {data.manifest["map_revision"]}: {args.bind}:{server.server_port}', flush=True)
                 server.serve_forever()
