@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sightmesh-center"
 version = "0.1.0"
-description = "SightMesh versioned localization map queries"
+description = "SightMesh center runtime for global association, 3D state fusion, world modeling, and map queries; currently implements basic map services"
 requires-python = ">=3.9"
 dependencies = []
 

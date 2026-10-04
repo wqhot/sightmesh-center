@@ -1,6 +1,6 @@
 # sightmesh-center
 
-SightMesh 中心地图服务。第一步为 [设计 6.4](https://github.com/wqhot/sightmesh-desing/blob/main/06_04_边缘动态目标感知与局部三维定位.md) 的地图辅助定位提供几何证据，接口按 6.6 的时间、版本和质量语义组织。
+`sightmesh-center` 是 SightMesh 中心侧能力的运行载体，目标是承载[设计 6.5《中心跨节点全局关联与三维状态融合》](../sightmesh-designing/06_05_中心跨节点全局关联与三维状态融合.md)和[设计 6.6《世界模型与地图查询》](../sightmesh-designing/06_06_世界模型与地图查询.md)。目前仅实现基础地图服务：版本化地图包导入、只读几何查询和 Cesium 地形/建筑资源提供；跨节点全局关联、三维状态融合及完整世界模型尚未实现。
 
 `sightmesh-sim` 维护地图源文件和转换工具；地图 HTTP 服务统一从 center 启动。center 将重建版静态网格转换为不可变定位地图包，并将 Cesium 显示资源固化到同一版本，提供最近表面候选、射线首个命中、遮挡查询、定位数据下载及 Cesium 地形/建筑资源。edge 可下载地图包并在本地使用 `Map.query`，实时定位无需逐帧访问中心。Python 3.9+，运行与测试只依赖标准库，不要求安装 Blender、Gazebo、Cesium 或 ROS。
 

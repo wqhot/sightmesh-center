@@ -1,1 +1,1 @@
-"""Static map evidence for SightMesh localization."""
+"""SightMesh center runtime; currently provides basic versioned map services."""
