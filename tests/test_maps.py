@@ -3,12 +3,13 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import random
 import struct
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -256,6 +257,29 @@ class CesiumServiceTests(unittest.TestCase):
 
 
 class SimIntegrationTests(unittest.TestCase):
+    def test_import_with_windows_relative_paths(self):
+        source = Path(os.environ.get('SIGHTMESH_SIM_MAP', str(
+            Path(__file__).resolve().parents[2]/'sightmesh-sim/maps/industrial-park/cesium')))
+        if not source.exists():
+            self.skipTest('Sibling sim map not available')
+        config = json.loads((Path(__file__).resolve().parents[1]/'config/industrial-park.json').read_text())
+
+        # 在本机文件系统上导入，但令 relative_to 返回 Windows 风格路径。
+        class WindowsRelativePath(type(Path())):
+            def relative_to(self, *args):
+                return PureWindowsPath(super().relative_to(*args).as_posix())
+
+        with tempfile.TemporaryDirectory() as temp:
+            expected = build(source, temp, config)
+            with patch('sightmesh_center.importer.Path', WindowsRelativePath):
+                output = build(source, temp, config)
+            self.assertEqual(output, expected)
+            data = Map(output)
+            self.assertIn('buildings/industrial_park_rebuilt.glb', data.manifest['sources'])
+            for name, checksum in data.manifest['sources'].items():
+                self.assertNotIn('\\', name)
+                self.assertEqual(hashlib.sha256(data.cesium.files[name]).hexdigest(), checksum)
+
     def test_current_sim_import_and_coordinates(self):
         source = Path(os.environ.get('SIGHTMESH_SIM_MAP', str(
             Path(__file__).resolve().parents[2]/'sightmesh-sim/maps/industrial-park/cesium')))

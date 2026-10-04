@@ -4,6 +4,8 @@
 
 `sightmesh-sim` 维护地图源文件和转换工具；地图 HTTP 服务统一从 center 启动。center 将重建版静态网格转换为不可变定位地图包，并将 Cesium 显示资源固化到同一版本，提供最近表面候选、射线首个命中、遮挡查询、定位数据下载及 Cesium 地形/建筑资源。edge 可下载地图包并在本地使用 `Map.query`，实时定位无需逐帧访问中心。Python 3.9+，运行与测试只依赖标准库，不要求安装 Blender、Gazebo、Cesium 或 ROS。
 
+## Ubuntu / WSL 启动
+
 ```bash
 cd ~/dev/sightmesh/sightmesh-center
 # 只读取 sim 的源地图；导入后的服务无需访问 sim 工作区。
@@ -21,6 +23,49 @@ python3 -m sightmesh_center render-env --map data/maps/<完整地图版本> \
 # 在渲染设备加载上述 export 后执行；最后一个地址仍是 edge 服务。
 ./OgrePlayer 'rtp://0.0.0.0:5004@H264' 1280 720 http://192.168.1.101:18080
 ```
+
+## Windows PowerShell 启动
+
+RK3588 无法访问 WSL 内的 HTTP 端口时，可在 Windows PowerShell 中用 **Windows 版 Python 3.9+** 直接运行 center；仿真仍在 WSL 中运行。以下命令不经过 `wsl python3`，服务监听 Windows 主机的端口，无需为地图服务配置 WSL 端口转发。
+
+先安装 Windows Python，并确认 `py -3 --version` 为 3.9 或更高版本。将 `<Windows工作区>` 替换为包含 `sightmesh-center` 和 `sightmesh-sim` 的工作区目录；`<Windows局域网IP>` 使用 `ipconfig` 中 RK3588 可达的以太网或 Wi-Fi IPv4 地址，不使用 WSL 虚拟网卡地址、`127.0.0.1` 或 `0.0.0.0`。
+
+```powershell
+Set-Location '<Windows工作区>\sightmesh-center'
+$CenterAddress = '<Windows局域网IP>'
+$MapDir = py -3 -m sightmesh_center import --source '../sightmesh-sim/maps/industrial-park/cesium'
+if ($LASTEXITCODE -ne 0) { throw '地图导入失败，请检查上方错误' }
+py -3 -m sightmesh_center serve --map "$MapDir" --bind 0.0.0.0 --port 8080 --base-url "http://${CenterAddress}:8080"
+```
+
+如果仓库只在 WSL 内，无需复制整个工作区：先用 `wsl --list --quiet` 确认发行版名称，将上面的 `Set-Location` 改成以下命令，再执行其余命令。通过 [WSL 共享路径](https://learn.microsoft.com/en-us/windows/dev-environment/wsl-interop)读取代码和源地图，运行服务的仍是 Windows Python；WSL 发行版需保持可用。
+
+```powershell
+Set-Location '\\wsl.localhost\<发行版>\home\<WSL用户>\dev\sightmesh\sightmesh-center'
+```
+
+首次导入或源地图更新时执行 `import`。已有地图可直接使用其 Windows 可访问路径：
+
+```powershell
+$MapDir = 'data/maps/<完整地图版本>'
+py -3 -m sightmesh_center serve --map "$MapDir" --bind 0.0.0.0 --port 8080 --base-url "http://${CenterAddress}:8080"
+```
+
+若 Windows 防火墙阻止局域网访问，在**管理员 PowerShell** 中为可信的专用网络添加规则。下面仅放行本地子网的 TCP 8080；端口改动时同步修改规则和访问地址。用 `Get-NetConnectionProfile` 检查网卡的网络类别，此规则只在 `Private` 配置下生效。规则参数见 [New-NetFirewallRule 文档](https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallrule)。
+
+```powershell
+New-NetFirewallRule -DisplayName 'SightMesh Center HTTP 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -Profile Private -RemoteAddress LocalSubnet
+```
+
+保持服务终端运行，在另一个 PowerShell 中检查本机服务：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8080/v1/map'
+```
+
+再在 RK3588 上执行 `curl 'http://<Windows局域网IP>:8080/v1/map'`，确认跨机可达。服务打印的五行 `export` 是给 **RK3588 Linux 终端**使用的，复制到目标板后再启动 `OgrePlayer`，无需在 PowerShell 中执行。此方式仅解决 center 地图 HTTP 服务的可达性；WSL 仿真的视频和 MAVLink UDP 链路仍需单独检查。
+
+## 地图资源与查询
 
 显示资源位于 `/cesium/placement.json`、`/cesium/buildings/tileset.json`、`/cesium/terrain-provider/layer.json` 等原目录路径。render 使用启用 Cesium Native 的程序即可，接口无需修改。`SIGHTMESH_TERRAIN_URL` 指向 `/cesium/terrain-provider` 目录，`SIGHTMESH_TILESET_URL` 指向建筑 tileset。地图原点从当前版本读取；edge 的定位坐标仍须与地图完成对齐。
 

@@ -147,7 +147,8 @@ def build(source, output, config):
         if source not in glb_path.parents:
             raise ValueError('GLB escapes source directory')
         sources[relative] = hashlib.sha256(data).hexdigest()
-        sources[str(glb_path.relative_to(source))] = hashlib.sha256(glb_path.read_bytes()).hexdigest()
+        # 地图包使用 URI 路径，避免 Windows 的反斜杠与 Cesium 资源键不匹配。
+        sources[glb_path.relative_to(source).as_posix()] = hashlib.sha256(glb_path.read_bytes()).hexdigest()
         # The complete scene already includes terrain in the current sim export.
         if layer == 'terrain_tileset' and placement.get('scene_contains_terrain'):
             continue
