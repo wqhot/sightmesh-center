@@ -92,7 +92,14 @@ struct Mesh::Impl {
         auto center=[&](std::size_t i){const auto&t=tris[i]; return axis==0?t.a.x+t.b.x+t.c.x:axis==1?t.a.y+t.b.y+t.c.y:t.a.z+t.b.z+t.c.z;};
         std::sort(ids.begin(),ids.end(),[&](auto a,auto b){return center(a)<center(b);});
         auto middle=ids.begin()+ids.size()/2; std::vector<std::size_t> l(ids.begin(),middle),r(middle,ids.end());
-        nodes[index].left=build(l); nodes[index].right=build(r); return index;
+        // Keep recursive growth separate from writes into nodes. In C++14 the
+        // evaluation order of an assignment does not protect a reference to
+        // nodes[index] from vector reallocation performed by build().
+        const int left = build(l);
+        const int right = build(r);
+        nodes[index].left = left;
+        nodes[index].right = right;
+        return index;
     }
     SurfaceHit result(const Tri& t,Vec3 p,double d) const {
         return {t.entity->id,t.entity->name,t.entity->semantic,p,t.n,d,t.id};
