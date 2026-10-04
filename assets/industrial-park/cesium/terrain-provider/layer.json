@@ -1,0 +1,183 @@
+{
+  "tilejson": "2.1.0",
+  "format": "quantized-mesh-1.0",
+  "version": "1.0.0",
+  "scheme": "tms",
+  "projection": "EPSG:4326",
+  "tiles": [
+    "{z}/{x}/{y}.terrain?v={version}"
+  ],
+  "bounds": [
+    116.3970568058877,
+    39.9081969434409,
+    116.39874319411231,
+    39.909203056559114
+  ],
+  "minzoom": 0,
+  "maxzoom": 17,
+  "available": [
+    [
+      {
+        "startX": 0,
+        "endX": 0,
+        "startY": 0,
+        "endY": 0
+      },
+      {
+        "startX": 1,
+        "endX": 1,
+        "startY": 0,
+        "endY": 0
+      }
+    ],
+    [
+      {
+        "startX": 3,
+        "endX": 3,
+        "startY": 1,
+        "endY": 1
+      }
+    ],
+    [
+      {
+        "startX": 6,
+        "endX": 6,
+        "startY": 2,
+        "endY": 2
+      }
+    ],
+    [
+      {
+        "startX": 13,
+        "endX": 13,
+        "startY": 5,
+        "endY": 5
+      }
+    ],
+    [
+      {
+        "startX": 26,
+        "endX": 26,
+        "startY": 11,
+        "endY": 11
+      }
+    ],
+    [
+      {
+        "startX": 52,
+        "endX": 52,
+        "startY": 23,
+        "endY": 23
+      }
+    ],
+    [
+      {
+        "startX": 105,
+        "endX": 105,
+        "startY": 46,
+        "endY": 46
+      }
+    ],
+    [
+      {
+        "startX": 210,
+        "endX": 210,
+        "startY": 92,
+        "endY": 92
+      }
+    ],
+    [
+      {
+        "startX": 421,
+        "endX": 421,
+        "startY": 184,
+        "endY": 184
+      }
+    ],
+    [
+      {
+        "startX": 843,
+        "endX": 843,
+        "startY": 369,
+        "endY": 369
+      }
+    ],
+    [
+      {
+        "startX": 1686,
+        "endX": 1686,
+        "startY": 739,
+        "endY": 739
+      }
+    ],
+    [
+      {
+        "startX": 3372,
+        "endX": 3372,
+        "startY": 1478,
+        "endY": 1478
+      }
+    ],
+    [
+      {
+        "startX": 6744,
+        "endX": 6744,
+        "startY": 2956,
+        "endY": 2956
+      }
+    ],
+    [
+      {
+        "startX": 13489,
+        "endX": 13489,
+        "startY": 5912,
+        "endY": 5912
+      }
+    ],
+    [
+      {
+        "startX": 26978,
+        "endX": 26978,
+        "startY": 11824,
+        "endY": 11824
+      }
+    ],
+    [
+      {
+        "startX": 53957,
+        "endX": 53957,
+        "startY": 23649,
+        "endY": 23649
+      }
+    ],
+    [
+      {
+        "startX": 107914,
+        "endX": 107914,
+        "startY": 47298,
+        "endY": 47298
+      },
+      {
+        "startX": 107915,
+        "endX": 107915,
+        "startY": 47298,
+        "endY": 47298
+      }
+    ],
+    [
+      {
+        "startX": 215829,
+        "endX": 215829,
+        "startY": 94596,
+        "endY": 94596
+      },
+      {
+        "startX": 215830,
+        "endX": 215830,
+        "startY": 94596,
+        "endY": 94596
+      }
+    ]
+  ],
+  "metadataAvailability": 0
+}

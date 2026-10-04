@@ -1,0 +1,16 @@
+{
+  "map_id": "industrial-park-rebuilt",
+  "quality": {
+    "source_kind": "synthetic_reference_reconstruction",
+    "confidence": 0.5,
+    "surface_sigma_m": 2.0,
+    "alignment_sigma_m": null,
+    "geographic_alignment": "unverified_demo_anchor",
+    "complete_free_space": false
+  },
+  "semantics": {
+    "site terrain | Ground | mown green": "terrain",
+    "road pavement | Paving | graphite asphalt": "road",
+    "sidewalks | Paving | light stone": "sidewalk"
+  }
+}

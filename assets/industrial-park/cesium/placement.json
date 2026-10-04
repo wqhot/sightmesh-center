@@ -1,0 +1,21 @@
+{
+  "coordinate_frame": "WGS84 geodetic anchor + local ENU metres",
+  "anchor": {
+    "longitude_deg": 116.3979,
+    "latitude_deg": 39.9087,
+    "ellipsoid_height_m": 0.0,
+    "provisional": true
+  },
+  "scene_extent_m": {
+    "east_west": 144,
+    "north_south": 112
+  },
+  "files": {
+    "terrain_tileset": "terrain/tileset.json",
+    "building_tileset": "buildings/tileset.json"
+  },
+  "notes": [
+    "The anchor is a demonstration default, not surveyed site georeferencing. Replace longitude, latitude, and ellipsoid height with the real site origin before operational use.",
+    "The terrain tile is a flat synthetic surface derived from the reference images; it is not a measured DEM or a Cesium quantized-mesh terrain provider."
+  ]
+}
