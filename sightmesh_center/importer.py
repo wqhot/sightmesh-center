@@ -193,7 +193,9 @@ def build(source, output, config):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
     (destination/'geometry.json.gz').write_bytes(geometry)
-    (destination/'manifest.json').write_bytes(encode(manifest)+b'\n')
+    manifest_bytes = encode(manifest)+b'\n'
+    (destination/'manifest.json').write_bytes(manifest_bytes)
+    (destination/'manifest.sha256').write_text(hashlib.sha256(manifest_bytes).hexdigest()+'\n', encoding='ascii')
     return destination
 
 

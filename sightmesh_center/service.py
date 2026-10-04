@@ -35,12 +35,20 @@ class Map:
     def __init__(self, directory):
         directory = Path(directory)
         self.manifest_bytes = (directory/'manifest.json').read_bytes()
+        manifest_hash_path = directory/'manifest.sha256'
+        if manifest_hash_path.exists() and manifest_hash_path.read_text(encoding='ascii').strip() != hashlib.sha256(self.manifest_bytes).hexdigest():
+            raise ValueError('Manifest byte checksum mismatch')
         self.manifest = json.loads(self.manifest_bytes)
         if self.manifest['schema_version'] != 1 or self.manifest['coordinate_frame'] != 'local_ENU':
             raise ValueError('Unsupported map package')
         expected = dict(self.manifest)
         revision = expected.pop('map_revision')
-        if hashlib.sha256(encode(expected)).hexdigest() != revision:
+        if expected.get('revision_algorithm') == 'sha256-source-geometry-placement-v1':
+            expected_revision = hashlib.sha256((expected['source_digest'] +
+                expected['geometry_sha256'] + expected['placement_sha256']).encode()).hexdigest()
+        else:
+            expected_revision = hashlib.sha256(encode(expected)).hexdigest()
+        if expected_revision != revision:
             raise ValueError('Manifest revision checksum mismatch')
         self.geometry_bytes = (directory/'geometry.json.gz').read_bytes()
         if hashlib.sha256(self.geometry_bytes).hexdigest() != self.manifest['geometry_sha256']:
@@ -112,6 +120,28 @@ def make_server(map_data, bind='127.0.0.1', port=8080):
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path.startswith('/maps/') and path.endswith('/manifest.json'):
+                map_id = unquote(path[len('/maps/'):-len('/manifest.json')].rstrip('/'))
+                if map_id == map_data.manifest.get('map_id'):
+                    self.reply(200, map_data.manifest_bytes, head=self.command == 'HEAD')
+                else:
+                    self.reply(404, {'error': 'unknown map id'}, head=self.command == 'HEAD')
+                return
+            if path.startswith('/maps/') and path.endswith('/manifest.sha256'):
+                map_id = unquote(path[len('/maps/'):-len('/manifest.sha256')].rstrip('/'))
+                if map_id == map_data.manifest.get('map_id'):
+                    digest = hashlib.sha256(map_data.manifest_bytes).hexdigest()+'\n'
+                    self.reply(200, digest.encode('ascii'), 'text/plain', head=self.command == 'HEAD')
+                else:
+                    self.reply(404, {'error': 'unknown map id'}, head=self.command == 'HEAD')
+                return
+            if path.startswith('/maps/') and path.endswith('/geometry.json.gz'):
+                map_id = unquote(path[len('/maps/'):-len('/geometry.json.gz')].rstrip('/'))
+                if map_id == map_data.manifest.get('map_id'):
+                    self.reply(200, map_data.geometry_bytes, 'application/gzip', head=self.command == 'HEAD')
+                else:
+                    self.reply(404, {'error': 'unknown map id'}, head=self.command == 'HEAD')
+                return
             if path.startswith('/cesium/'):
                 name = unquote(path[len('/cesium/'):])
                 content = map_data.cesium.files.get(name)
@@ -126,6 +156,8 @@ def make_server(map_data, bind='127.0.0.1', port=8080):
                            content_encoding='gzip' if suffix == '.terrain' else None)
             elif path == '/healthz':
                 self.reply(200, {'status': 'ok', 'map_revision': map_data.manifest['map_revision']}, head=self.command == 'HEAD')
+            elif path == '/v1/map/manifest.sha256':
+                self.reply(200, (hashlib.sha256(map_data.manifest_bytes).hexdigest()+'\n').encode('ascii'), 'text/plain', head=self.command == 'HEAD')
             elif path == '/v1/map':
                 self.reply(200, map_data.manifest_bytes, head=self.command == 'HEAD')
             elif path == '/v1/map/geometry.json.gz':

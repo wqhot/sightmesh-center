@@ -67,6 +67,37 @@ Invoke-RestMethod 'http://127.0.0.1:8080/v1/map'
 
 ## 地图资源与查询
 
+### C++ 导入与服务启动时转换
+
+Center 的几何查询与 HTTP runtime 使用 C++ 实现。GLB 读取使用 Assimp 5.x；JSON、HTTP、SHA-256 与 gzip 分别使用 JsonCpp、Boost.Beast、OpenSSL 和 zlib。Ubuntu 开发环境已用 Assimp 5.2.2、JsonCpp 1.9.5、Boost 1.74、OpenSSL 3.0、zlib 1.2 构建验证。Assimp 官方[导入指南](https://github.com/assimp/assimp-docs/blob/master/source/usage/use_the_lib.rst)记录 `Importer::ReadFile` 的使用方式，Assimp[格式列表](https://github.com/assimp/assimp/blob/master/doc/Fileformats.md)列出 glTF 2/GLB 支持；HTTP runtime 使用 Boost.Beast。
+
+几何查询当前使用独立、无第三方依赖的 C++14 `sightmesh_map_geometry` BVH 库，便于 RK3588 使用并与 edge vendoring 同一实现。它覆盖最近三角面与射线首个命中，当前 BVH 构造是项目内实现，后续可在 ARM 性能实测后替换为成熟加速库；不能把它描述为 Embree 等成熟库。C++ 导入器输出与 Python importer 兼容的 `manifest.json` 和 `geometry.json.gz` 包；若源目录含 sim 生成的 `static_scene.json`，则优先导入其中按语义分开的静态实体，并应用声明的 `transform_to_map_enu`。未校准的地理配准状态保留在 manifest 中。缺少该文件时回退至 Assimp GLB 静态网格导入。
+
+Ubuntu 安装 Assimp、JsonCpp、OpenSSL、zlib 开发包后构建：
+
+```bash
+cmake -S cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release
+cmake --build build/cpp -j
+ctest --test-dir build/cpp --output-on-failure
+```
+
+一次性导入并生成/复用内容缓存：
+
+```bash
+./build/cpp/sightmesh-map-cpp --source ../sightmesh-sim/maps/industrial-park/cesium \
+  --output data/maps --config config/industrial-park.json
+```
+
+也可在 center 启动服务时转换或命中相同缓存：
+
+```bash
+python3 -m sightmesh_center serve --source ../sightmesh-sim/maps/industrial-park/cesium \
+  --engine cpp --output data/maps --config config/industrial-park.json \
+  --bind 0.0.0.0 --port 8080
+```
+
+缓存键覆盖源目录内所有文件和配置；命中时校验地图版本及几何哈希。缓存与版本目录使用临时文件/目录再原子发布，导入失败不会替换正在服务的不可变地图版本。导入器在标准错误报告 cache hit 或 miss。若源里有 `static_scene.json`，它应由 sim 基于 SDF 静态场景导出，标注每个网格的语义；moving actor 不得进入该静态包。
+
 显示资源位于 `/cesium/placement.json`、`/cesium/buildings/tileset.json`、`/cesium/terrain-provider/layer.json` 等原目录路径。render 使用启用 Cesium Native 的程序即可，接口无需修改。`SIGHTMESH_TERRAIN_URL` 指向 `/cesium/terrain-provider` 目录，`SIGHTMESH_TILESET_URL` 指向建筑 tileset。地图原点从当前版本读取；edge 的定位坐标仍须与地图完成对齐。
 
 旧地图包可以继续提供定位查询，但没有显示资源；重新执行 `import` 生成新版本后即可统一服务。导入包含显示资源的哈希，资源更新也会生成新版本。启动时校验资源并加载内存快照，运行期间修改磁盘文件不会改变当前服务。

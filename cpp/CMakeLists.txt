@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.16)
+project(sightmesh_center_map LANGUAGES CXX)
+
+find_package(assimp REQUIRED)
+find_package(jsoncpp CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(Boost 1.74 REQUIRED COMPONENTS system)
+find_package(Threads REQUIRED)
+
+add_library(sightmesh_map_geometry src/mesh.cpp)
+target_include_directories(sightmesh_map_geometry PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(sightmesh_map_geometry PUBLIC cxx_std_14)
+target_compile_options(sightmesh_map_geometry PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(sightmesh_map_importer src/importer.cpp)
+target_compile_features(sightmesh_map_importer PUBLIC cxx_std_17)
+target_link_libraries(sightmesh_map_importer PUBLIC assimp::assimp JsonCpp::JsonCpp OpenSSL::Crypto ZLIB::ZLIB)
+add_executable(sightmesh-map-cpp src/importer_main.cpp)
+target_compile_features(sightmesh-map-cpp PRIVATE cxx_std_17)
+target_include_directories(sightmesh-map-cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(sightmesh-map-cpp PRIVATE sightmesh_map_importer)
+target_compile_options(sightmesh-map-cpp PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(sightmesh-map-server-cpp src/server.cpp)
+target_compile_features(sightmesh-map-server-cpp PRIVATE cxx_std_17)
+target_include_directories(sightmesh-map-server-cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(sightmesh-map-server-cpp PRIVATE sightmesh_map_geometry sightmesh_map_importer
+    JsonCpp::JsonCpp OpenSSL::Crypto ZLIB::ZLIB Boost::system Threads::Threads)
+target_compile_options(sightmesh-map-server-cpp PRIVATE -Wall -Wextra -Wpedantic)
+
+enable_testing()
+add_executable(mesh_test tests/mesh_test.cpp)
+target_link_libraries(mesh_test PRIVATE sightmesh_map_geometry)
+target_compile_options(mesh_test PRIVATE -UNDEBUG)
+add_test(NAME mesh_geometry COMMAND mesh_test)

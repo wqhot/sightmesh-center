@@ -304,6 +304,12 @@ class SimIntegrationTests(unittest.TestCase):
             thread.start()
             base = f'http://127.0.0.1:{server.server_port}'
             try:
+                with urlopen(base+'/v1/map/manifest.sha256') as response:
+                    self.assertEqual(response.read().decode().strip(), hashlib.sha256(data.manifest_bytes).hexdigest())
+                with urlopen(base+f'/maps/{data.manifest["map_id"]}/manifest.json') as response:
+                    self.assertEqual(response.read(), data.manifest_bytes)
+                with urlopen(base+f'/maps/{data.manifest["map_id"]}/geometry.json.gz') as response:
+                    self.assertEqual(response.read(), data.geometry_bytes)
                 with urlopen(base+'/cesium/buildings/tileset.json') as response:
                     self.assertEqual(response.read(), (source/'buildings/tileset.json').read_bytes())
                 tile = '/cesium/terrain-provider/0/0/0.terrain?v=1.0.0'
