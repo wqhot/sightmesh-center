@@ -6,7 +6,7 @@
 
 int main(int argc,char**argv){
     try {
-        std::filesystem::path source,output="data/maps",config="config/industrial-park.json";
+        std::filesystem::path source,output="data/maps",config="config/center.json";
         for(int i=1;i<argc;i++){
             std::string a=argv[i];
             if(i+1>=argc)throw std::runtime_error("missing value for "+a);

@@ -12,5 +12,15 @@
     "site terrain | Ground | mown green": "terrain",
     "road pavement | Paving | graphite asphalt": "road",
     "sidewalks | Paving | light stone": "sidewalk"
+  },
+  "runtime": {
+    "source": "../sightmesh-sim/maps/industrial-park/cesium",
+    "map": "",
+    "output": "data/maps",
+    "engine": "python",
+    "bind": "0.0.0.0",
+    "port": 8080,
+    "base_url": "http://127.0.0.1:8080",
+    "server": "build/cpp/sightmesh-map-server-cpp"
   }
 }

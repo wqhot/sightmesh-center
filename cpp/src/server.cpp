@@ -122,8 +122,29 @@ static void session(tcp::socket socket){try{beast::flat_buffer buffer;http::requ
 
 int main(int argc,char**argv){
     try {
-        fs::path mapDir,source,output="data/maps",config="config/industrial-park.json";std::string bind="127.0.0.1";unsigned short port=8080;bool watch=false;
-        for(int i=1;i<argc;i++){std::string a=argv[i];if(i+1>=argc&&a!="--watch")throw std::runtime_error("missing value for "+a);if(a=="--map")mapDir=argv[++i];else if(a=="--source")source=argv[++i];else if(a=="--output")output=argv[++i];else if(a=="--config")config=argv[++i];else if(a=="--bind")bind=argv[++i];else if(a=="--port")port=(unsigned short)std::stoi(argv[++i]);else if(a=="--watch")watch=true;else throw std::runtime_error("unknown option "+a);}
+        fs::path mapDir,source,output="data/maps",config="config/center.json";std::string bind="127.0.0.1";unsigned short port=8080;bool watch=false;
+        for (int i = 1; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--help") {
+                std::cout << "Usage: sightmesh-map-server-cpp [--config config/center.json] [--map DIR | --source DIR] [--bind IP] [--port N]\n";
+                return 0;
+            }
+            if (arg == "--config" && i + 1 < argc) config = argv[++i];
+        }
+        if (fs::exists(config)) {
+            const auto runtime = parse(readFile(config))["runtime"];
+            if (runtime.isObject()) {
+                source = runtime.get("source", "").asString();
+                mapDir = runtime.get("map", "").asString();
+                if (!mapDir.empty()) source.clear();
+                output = runtime.get("output", "data/maps").asString();
+                bind = runtime.get("bind", "127.0.0.1").asString();
+                const int configuredPort = runtime.get("port", 8080).asInt();
+                if (configuredPort < 1 || configuredPort > 65535) throw std::runtime_error("invalid runtime.port");
+                port = static_cast<unsigned short>(configuredPort);
+            }
+        }
+        for(int i=1;i<argc;i++){std::string a=argv[i];if(i+1>=argc&&a!="--watch")throw std::runtime_error("missing value for "+a);if(a=="--map"){mapDir=argv[++i];source.clear();}else if(a=="--source")source=argv[++i];else if(a=="--output")output=argv[++i];else if(a=="--config")config=argv[++i];else if(a=="--bind")bind=argv[++i];else if(a=="--port"){const int value=std::stoi(argv[++i]);if(value<1||value>65535)throw std::runtime_error("invalid port");port=static_cast<unsigned short>(value);}else if(a=="--watch")watch=true;else throw std::runtime_error("unknown option "+a);}
         if(!source.empty()){mapDir=sightmesh_map::build_map(source,output,config);watch=true;}if(mapDir.empty())throw std::runtime_error("usage: sightmesh-map-server-cpp (--map DIR | --source DIR) [--watch] [--bind IP] [--port N]");
         std::atomic_store(&currentMap,loadMap(mapDir));log("map server loaded revision="+std::atomic_load(&currentMap)->manifest["map_revision"].asString());
         if(watch&&!source.empty())std::thread([source,output,config]{std::string active=sightmesh_map::source_digest(source,config);while(true){std::this_thread::sleep_for(std::chrono::seconds(2));try{std::string digest=sightmesh_map::source_digest(source,config);if(digest==active)continue;auto path=sightmesh_map::build_map(source,output,config);auto next=loadMap(path);std::atomic_store(&currentMap,next);active=digest;log("map update published revision="+next->manifest["map_revision"].asString());}catch(const std::exception&e){log(std::string("map update rejected; keeping active snapshot: ")+e.what());}}}).detach();

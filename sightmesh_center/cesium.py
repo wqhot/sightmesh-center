@@ -29,7 +29,7 @@ class CesiumAssets:
                 if self.placement['files'][name] not in self.files:
                     raise ValueError('Cesium 地图缺少资源: '+name)
 
-    def render_environment(self, base_url):
+    def render_configuration(self, base_url):
         if not self.files:
             raise ValueError('旧地图包没有 Cesium 资源，请从 sim 重新 import')
         parts = urlsplit(base_url)
@@ -45,3 +45,6 @@ class CesiumAssets:
             'SIGHTMESH_ORIGIN_LAT': str(anchor['latitude_deg']),
             'SIGHTMESH_ORIGIN_HEIGHT': str(anchor['ellipsoid_height_m']),
         }
+
+    # Compatibility for API consumers; this returns data and does not access os.environ.
+    render_environment = render_configuration

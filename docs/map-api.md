@@ -47,6 +47,6 @@ result = map_data.query('surface', {
 
 地图服务同时提供当前版本 `/cesium/<资源相对路径>` 的 GET/HEAD，支持 CORS。`.glb` 使用 `model/gltf-binary`；`.terrain` 使用 `application/vnd.quantized-mesh` 和 `Content-Encoding: gzip`，支持带版本 query 的请求。缺失资源返回 404，不附带 gzip 头，不提供目录列表。定位下载 `/v1/map/geometry.json.gz` 的压缩约定保持不变。
 
-导入将源资源保存为地图包的 `cesium/` 目录；manifest 的 `cesium_assets` 记录每个资源的 SHA256，并参与地图版本哈希。启动服务时校验后加载快照，不再读取 sim。旧包缺少该字段时仍可查询定位数据，显示资源返回 404；`render-env` 会提示重新导入。
+导入将源资源保存为地图包的 `cesium/` 目录；manifest 的 `cesium_assets` 记录每个资源的 SHA256，并参与地图版本哈希。启动服务时校验后加载快照，不再读取 sim。旧包缺少该字段时仍可查询定位数据，显示资源返回 404；`render-config` 会提示重新导入。
 
-使用 `python3 -m sightmesh_center render-env --map <地图目录> --base-url <中心地址>` 生成同版本的地图地址和 WGS84 原点。该配置只连接显示地图；OgrePlayer 的目标流仍来自 edge，center 不提供目标 SSE 流。
+使用 `python3 -m sightmesh_center render-config --map <地图目录> --base-url <中心地址>` 生成同版本的地图地址和 WGS84 原点。该配置只连接显示地图；OgrePlayer 的目标流仍来自 edge，center 不提供目标 SSE 流。

@@ -30,6 +30,21 @@ class CppImporterTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
         return result
 
+    def test_runtime_settings_do_not_invalidate_geometry_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / 'center.json'
+            options = json.loads((ROOT / 'config/center.json').read_text())
+            config.write_text(json.dumps(options))
+            argv = [str(CPP_IMPORTER), '--source', str(SIM_SOURCE), '--output', str(root / 'maps'), '--config', str(config)]
+            first = subprocess.run(argv, capture_output=True, text=True, check=True)
+            options['runtime']['port'] = 18081
+            options['runtime']['bind'] = '127.0.0.1'
+            config.write_text(json.dumps(options))
+            second = subprocess.run(argv, capture_output=True, text=True, check=True)
+            self.assertEqual(first.stdout.strip(), second.stdout.strip())
+            self.assertIn('cache hit', second.stderr)
+
     def test_online_cache_package_validation_repair_and_source_update(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -90,7 +105,7 @@ class CppImporterTests(unittest.TestCase):
                 legacy_key.update(b'\0')
                 legacy_key.update(path.read_bytes())
                 legacy_key.update(b'\0')
-            legacy_key.update((ROOT / 'config' / 'industrial-park.json').read_bytes())
+            legacy_key.update((ROOT / 'config' / 'center.json').read_bytes())
             old_revision = 'legacy-converter-revision'
             old_geometry = b'valid-checksum-but-stale-converter-output'
             old_manifest = json.dumps({

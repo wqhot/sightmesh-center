@@ -1,5 +1,33 @@
 # sightmesh-center
 
+## 统一配置入口
+
+每个组件只有一个需要维护的运行配置文件。环境变量不再覆盖应用参数；命令行参数可用于单次运行覆盖。
+
+| 组件 | 唯一配置文件 | 启动命令（在组件目录中执行） |
+| --- | --- | --- |
+| center | `config/center.json` | `python3 -m sightmesh_center serve` |
+| sim | `config/sim.ini` | `./scripts/run_sim.sh`、`./scripts/run_px4.sh`、`./scripts/run_streams.sh` |
+| edge | `config/edge.ini` | `python3 scripts/run.py` |
+| render | `config/render.ini` | `python3 scripts/run.py` |
+
+center 的 JSON 同时保存 `runtime` 服务参数与地图导入的质量、语义设置。其余三个组件使用标准 INI：值不加引号，不进行 `$VAR` 展开；空值使用内置默认。sim 的 `[runtime]` 保存轨迹、视频与联调设置，`[streams]` 保存相机 topic，`[node.<节点名>]` 保存视频、MAVLink 和可选 HTTP 端点。标定、地图包和模型文件仍作为数据资源引用，不是另一套启动配置。
+
+INI 内保留原参数名，方便核对迁移，但现在它们是文件字段。首先修改模型/标定/库路径、主机地址、端口、地图 URL 和世界坐标原点。样例面向本机 WSL 联调；RK3588 上替换 edge 模型为 RKNN、render 解码为 `rkmpp`，并部署 `config/` 与启动脚本。同板 edge/render 接收同一路单播视频时仍需另行分发。
+
+直接启动 C++ 程序也会读取 `config/edge.ini` 或 `config/render.ini`，可使用 `--config FILE` 指定部署文件。`scripts/run.py` 固定工作目录为组件目录，并从配置准备第三方库搜索路径。sim 的相对路径以 sim 仓库目录为基准；center 的相对路径以启动工作目录为基准。程序只向 Gazebo/PX4/FastPlayer 转换它们必须使用的系统/库环境参数，用户不需要再导出应用配置。
+
+检查配置：`python3 -m sightmesh_center check-config`、`./scripts/run_sim.sh --check-config`、`python3 scripts/run.py --check-config`（edge/render）。检查只验证文件解析；模型、地图、网络与目标硬件可用性仍在实际启动时检查。WSL 启动器读取四个文件，运行时派生的地图锚点、坐标变换、日志路径写入 ignored `reports/` 配置快照，不需要手工维护。
+
+中心地图导入后，用下面的命令将 URL 和锚点更新到 render 的同一个配置文件，已有其他字段会保留：
+
+```bash
+cd sightmesh-center
+python3 -m sightmesh_center render-config --map data/maps/<完整地图版本> \
+  --base-url http://<渲染设备可达的中心地址>:8080 \
+  --render-config ../sightmesh-render/config/render.ini
+```
+
 `sightmesh-center` 是 SightMesh 中心侧能力的运行载体，目标是承载[设计 6.5《中心跨节点全局关联与三维状态融合》](../sightmesh-designing/06_05_中心跨节点全局关联与三维状态融合.md)和[设计 6.6《世界模型与地图查询》](../sightmesh-designing/06_06_世界模型与地图查询.md)。目前仅实现基础地图服务：版本化地图包导入、只读几何查询和 Cesium 地形/建筑资源提供；跨节点全局关联、三维状态融合及完整世界模型尚未实现。
 
 `sightmesh-sim` 维护地图源文件和转换工具；地图 HTTP 服务统一从 center 启动。center 将重建版静态网格转换为不可变定位地图包，并将 Cesium 显示资源固化到同一版本，提供最近表面候选、射线首个命中、遮挡查询、定位数据下载及 Cesium 地形/建筑资源。edge 可下载地图包并在本地使用 `Map.query`，实时定位无需逐帧访问中心。Python 3.9+，运行与测试只依赖标准库，不要求安装 Blender、Gazebo、Cesium 或 ROS。
@@ -15,12 +43,12 @@ python3 -m sightmesh_center serve --map "$MAP_DIR" \
   --bind 0.0.0.0 --port 8080 --base-url http://192.168.1.100:8080
 ```
 
-将 IP 替换为渲染设备可访问的中心主机地址。服务输出五行 `export`，复制到渲染设备的终端后运行 `OgrePlayer`。也可在另一个终端单独生成配置：
+将 IP 替换为渲染设备可访问的中心主机地址。用 `render-config` 更新 `config/render.ini`，部署该文件后运行 `OgrePlayer`。也可在另一个终端单独生成配置：
 
 ```bash
-python3 -m sightmesh_center render-env --map data/maps/<完整地图版本> \
+python3 -m sightmesh_center render-config --map data/maps/<完整地图版本> \
   --base-url http://192.168.1.100:8080
-# 在渲染设备加载上述 export 后执行；最后一个地址仍是 edge 服务。
+# 在渲染设备部署更新后的 config/render.ini 后执行；最后一个地址仍是 edge 服务。
 ./OgrePlayer 'rtp://0.0.0.0:5004@H264' 1280 720 http://192.168.1.101:18080
 ```
 
@@ -63,7 +91,7 @@ New-NetFirewallRule -DisplayName 'SightMesh Center HTTP 8080' -Direction Inbound
 Invoke-RestMethod 'http://127.0.0.1:8080/v1/map'
 ```
 
-再在 RK3588 上执行 `curl 'http://<Windows局域网IP>:8080/v1/map'`，确认跨机可达。服务打印的五行 `export` 是给 **RK3588 Linux 终端**使用的，复制到目标板后再启动 `OgrePlayer`，无需在 PowerShell 中执行。此方式仅解决 center 地图 HTTP 服务的可达性；WSL 仿真的视频和 MAVLink UDP 链路仍需单独检查。
+再在 RK3588 上执行 `curl 'http://<Windows局域网IP>:8080/v1/map'`，确认跨机可达。用 `render-config` 更新 render 配置文件，并将它部署到 RK3588 后启动 `OgrePlayer`。此方式仅解决 center 地图 HTTP 服务的可达性；WSL 仿真的视频和 MAVLink UDP 链路仍需单独检查。
 
 ## 地图资源与查询
 
@@ -85,14 +113,14 @@ ctest --test-dir build/cpp --output-on-failure
 
 ```bash
 ./build/cpp/sightmesh-map-cpp --source ../sightmesh-sim/maps/industrial-park/cesium \
-  --output data/maps --config config/industrial-park.json
+  --output data/maps --config config/center.json
 ```
 
 也可在 center 启动服务时转换或命中相同缓存：
 
 ```bash
 python3 -m sightmesh_center serve --source ../sightmesh-sim/maps/industrial-park/cesium \
-  --engine cpp --output data/maps --config config/industrial-park.json \
+  --engine cpp --output data/maps --config config/center.json \
   --bind 0.0.0.0 --port 8080
 ```
 
