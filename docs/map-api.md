@@ -49,4 +49,4 @@ result = map_data.query('surface', {
 
 导入将源资源保存为地图包的 `cesium/` 目录；manifest 的 `cesium_assets` 记录每个资源的 SHA256，并参与地图版本哈希。启动服务时校验后加载快照，不再读取 sim。旧包缺少该字段时仍可查询定位数据，显示资源返回 404；`render-config` 会提示重新导入。
 
-使用 `python3 -m sightmesh_center render-config --map <地图目录> --base-url <中心地址>` 生成同版本的地图地址和 WGS84 原点。该配置只连接显示地图；OgrePlayer 的目标流仍来自 edge，center 不提供目标 SSE 流。
+启动 `serve` 时会使用 `center.json` 的当前地图与 `base_url` 更新 Render 配置中的地图地址和 WGS84 原点；也可运行 `python3 -m sightmesh_center render-config` 单独刷新。该配置只连接显示地图；OgrePlayer 的目标流仍来自 edge，center 不提供目标 SSE 流。

@@ -258,10 +258,10 @@ class CesiumServiceTests(unittest.TestCase):
 
 class SimIntegrationTests(unittest.TestCase):
     def test_import_with_windows_relative_paths(self):
-        source = (Path(__file__).resolve().parents[1] / json.loads((Path(__file__).resolve().parents[1] / 'config/center.json').read_text())['runtime']['source']).resolve()
+        source = (Path(__file__).resolve().parents[1] / json.loads((Path(__file__).resolve().parents[1] / 'config/center.sample.json').read_text())['runtime']['source']).resolve()
         if not source.exists():
             self.skipTest('Sibling sim map not available')
-        config = json.loads((Path(__file__).resolve().parents[1]/'config/center.json').read_text())
+        config = json.loads((Path(__file__).resolve().parents[1]/'config/center.sample.json').read_text())
 
         # 在本机文件系统上导入，但令 relative_to 返回 Windows 风格路径。
         class WindowsRelativePath(type(Path())):
@@ -280,10 +280,10 @@ class SimIntegrationTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(data.cesium.files[name]).hexdigest(), checksum)
 
     def test_current_sim_import_and_coordinates(self):
-        source = (Path(__file__).resolve().parents[1] / json.loads((Path(__file__).resolve().parents[1] / 'config/center.json').read_text())['runtime']['source']).resolve()
+        source = (Path(__file__).resolve().parents[1] / json.loads((Path(__file__).resolve().parents[1] / 'config/center.sample.json').read_text())['runtime']['source']).resolve()
         if not source.exists():
             self.skipTest('Sibling sim map not available')
-        config = json.loads((Path(__file__).resolve().parents[1]/'config/center.json').read_text())
+        config = json.loads((Path(__file__).resolve().parents[1]/'config/center.sample.json').read_text())
         with tempfile.TemporaryDirectory() as temp:
             output = build(source, temp, config)
             self.assertEqual(build(source, temp, config), output)
