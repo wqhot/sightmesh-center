@@ -1,5 +1,7 @@
 # sightmesh-center
 
+Center Tracklet 重建、可选 OR-Tools 求解、持久 GlobalTrack 与 IdentityRevision 接口的阶段性实现见 [V1 关联方案](docs/tracklet-association-v1.md)；默认仅单节点 provisional，未验证时钟/地图配准时不自动跨节点合并。
+
 可靠事件接入另有**可选**的 [TrackEvent/Blob 持久 Inbox](docs/reliable-track-inbox.md)，与当前地图查询服务分端口部署；全局关联及 NNG 可靠事件仍未实现。
 
 ## 统一配置入口
