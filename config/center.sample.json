@@ -20,6 +20,10 @@
     "max_mahalanobis_sq": 11.344866730144373,
     "min_quality": 0.0,
     "clock_error_gate_s": 0.05,
+    "class_labels": {
+      "tracker_uav_1": {"0": "tank", "1": "person"},
+      "tracker_ugv_1": {"0": "tank", "1": "person"}
+    },
     "sources": {
       "tracker_uav_1": {
         "verified": false,
