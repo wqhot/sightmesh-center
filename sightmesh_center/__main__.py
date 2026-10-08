@@ -91,6 +91,17 @@ def main():
     ingest.add_argument('--port', type=int, default=ingest_settings.get('port', 18081))
     ingest.add_argument('--db', type=Path, default=Path(ingest_settings.get('db', 'data/track-inbox.sqlite3')))
     ingest.add_argument('--token-file', type=Path, default=Path(ingest_settings['token_file']) if ingest_settings.get('token_file') else None)
+    associate = sub.add_parser('associate', help='从已提交 TrackEvent 重建 Tracklet 和全局关联 V1')
+    associate.add_argument('--db', type=Path, default=Path(
+        settings.get('ingest', {}).get('db', 'data/track-inbox.sqlite3')))
+    associate.add_argument('--policy', type=Path, help='独立 JSON 策略文件；默认使用 center.json 的 association')
+    associate.add_argument('--solver', choices=('greedy', 'ortools'), default='greedy')
+    associate.add_argument('--max-events', type=int, default=200000)
+    associate.add_argument('--watch', action='store_true', help='按周期重新评估，不是系统守护服务')
+    associate.add_argument('--interval', type=float, default=2.0)
+    global_state = sub.add_parser('global-state', help='只读查询已提交的 GlobalTrack 快照')
+    global_state.add_argument('--db', type=Path, default=Path(
+        settings.get('ingest', {}).get('db', 'data/track-inbox.sqlite3')))
     check = sub.add_parser('check-config', help='验证 center 的统一配置文件')
     check.add_argument('--config', type=Path, default=config_path)
     render = sub.add_parser('render-config', help='把地图资源地址和锚点写入 render 的唯一配置文件')
@@ -102,6 +113,42 @@ def main():
     render.add_argument('--base-url', default=settings.get('base_url'))
     render.add_argument('--render-config', type=Path, default=default_render_config())
     args = parser.parse_args()
+    if args.command == 'associate':
+        import time
+        from .association_v1 import AssociationPolicy
+        from .global_tracks import GlobalTrackRepository
+        try:
+            raw_policy = (json.loads(args.policy.read_text(encoding='utf-8'))
+                          if args.policy else configuration.get('association', {}))
+            policy = AssociationPolicy.from_dict(raw_policy)
+            if not 0.1 <= args.interval <= 3600 or args.max_events <= 0:
+                raise ValueError('invalid association interval/event limit')
+            repository = GlobalTrackRepository(args.db)
+            while True:
+                state = repository.recompute(policy, args.solver, args.max_events)
+                print(json.dumps({
+                    'world_revision': state['world_revision'],
+                    'global_track_count': len(state['global_tracks']),
+                    'candidate_count': state['candidate_count'],
+                    'selected_pair_count': state['selected_pair_count'],
+                    'last_identity_revision': state['last_identity_revision'],
+                }, ensure_ascii=False), flush=True)
+                if not args.watch:
+                    break
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            pass
+        except (OSError, ValueError, RuntimeError) as error:
+            parser.exit(2, f'中心关联失败: {error}\\n')
+        return
+    if args.command == 'global-state':
+        from .global_tracks import GlobalTrackRepository
+        try:
+            print(json.dumps(GlobalTrackRepository(args.db).latest(),
+                             ensure_ascii=False, indent=2))
+        except (OSError, ValueError) as error:
+            parser.exit(2, f'查询失败: {error}\\n')
+        return
     if args.command == 'ingest':
         from .track_ingest_server import serve_inbox
         try:
