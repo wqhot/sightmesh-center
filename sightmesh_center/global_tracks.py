@@ -157,6 +157,7 @@ class GlobalTrackRepository:
                     "max_mahalanobis_sq", "min_quality", "clock_error_gate_s")}
             },
             "solver": solver_name,
+            "class_labels": policy.class_labels,
             "selected": [(tracks[e.left].uid, tracks[e.right].uid,
                           round(e.d2, 8)) for e in selected],
         }).encode()).hexdigest()
@@ -229,8 +230,17 @@ class GlobalTrackRepository:
                     for member in members:
                         new_members[member.uid] = global_id
                     representative = _representative(members)
+                    semantic_classes = {
+                        policy.class_labels.get(t.key.node, {}).get(t.class_id)
+                        for t in members
+                    }
+                    semantic_classes.discard(None)
+                    class_name = (next(iter(semantic_classes))
+                                  if len(semantic_classes) == 1 else "")
                     snapshots.append({
                         "global_id": global_id,
+                        "class_name": class_name,
+                        "class_id": members[0].class_id,
                         "identity_revision": identity_revision,
                         "status": ("associated_pair" if len(members) == 2 else
                                    "provisional" if representative else "unlocalized"),
@@ -278,6 +288,12 @@ class GlobalTrackRepository:
                     "world_revision": world_revision,
                     "association_status": "conservative_baseline_not_joint_fusion",
                     "clock_policy": "explicitly_verified_sources_only",
+                    "alignment_policy": {
+                        node: {"alignment_id": v.alignment_id,
+                               "coordinate_frame_id": v.coordinate_frame_id,
+                               "map_revision": v.map_revision}
+                        for node, v in policy.sources.items()
+                    },
                     "solver": solver_name,
                     "candidate_count": len(pairs),
                     "selected_pair_count": len(selected),
