@@ -1,0 +1,35 @@
+name: geodesy-regression
+
+on:
+  push:
+    paths:
+      - "cpp/src/geodesy.cpp"
+      - "cpp/include/sightmesh_map/geodesy.hpp"
+      - "cpp/tests/geodesy_test.cpp"
+      - "cpp/src/importer.cpp"
+      - "cpp/CMakeLists.txt"
+      - ".github/workflows/geodesy.yml"
+  pull_request:
+    paths:
+      - "cpp/src/geodesy.cpp"
+      - "cpp/include/sightmesh_map/geodesy.hpp"
+      - "cpp/tests/geodesy_test.cpp"
+      - "cpp/src/importer.cpp"
+      - "cpp/CMakeLists.txt"
+      - ".github/workflows/geodesy.yml"
+
+jobs:
+  geodesy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fallback geodesy without new dependencies
+        run: |
+          c++ -std=c++14 -Wall -Wextra -Werror -Icpp/include cpp/src/geodesy.cpp cpp/tests/geodesy_test.cpp -o /tmp/legacy-geodesy
+          /tmp/legacy-geodesy
+      - name: Install GeographicLib
+        run: sudo apt-get update -qq && sudo apt-get install -y libgeographiclib-dev
+      - name: Test GeographicLib geodesy backend
+        run: |
+          c++ -std=c++14 -Wall -Wextra -Werror -DSIGHTMESH_USE_GEOGRAPHICLIB=1 -Icpp/include cpp/src/geodesy.cpp cpp/tests/geodesy_test.cpp -lGeographicLib -o /tmp/geographiclib-geodesy
+          /tmp/geographiclib-geodesy
