@@ -20,6 +20,7 @@ MAX_BATCH_BYTES = 4 * 1024 * 1024
 MAX_BLOB_BYTES = 16 * 1024 * 1024
 MAX_EVENTS_PER_BATCH = 512
 MAX_SEQ = (1 << 63) - 1
+MAX_U64 = (1 << 64) - 1
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 ALLOWED_EVENTS = {"start", "update", "end"}
 
@@ -41,8 +42,8 @@ def _nonfinite(value: str) -> None:
     raise InboxError(f"non-finite JSON value: {value}")
 
 
-def _uint(value: Any, field: str, *, allow_zero: bool = True) -> int:
-    if type(value) is not int or not (0 if allow_zero else 1) <= value <= MAX_SEQ:
+def _uint(value: Any, field: str, *, allow_zero: bool = True, limit: int = MAX_SEQ) -> int:
+    if type(value) is not int or not (0 if allow_zero else 1) <= value <= limit:
         raise InboxError(f"{field} must be a nonnegative signed-64-bit integer")
     return value
 
@@ -81,7 +82,7 @@ def _validate_event(event: Any) -> tuple[str, str, int, str, str, list[tuple[str
         raise InboxError("event must be an object")
     node = _text(event.get("node_id"), "node_id", 128)
     _text(event.get("camera_id"), "camera_id", 128)
-    session = str(_uint(event.get("session_id"), "session_id"))
+    session = str(_uint(event.get("session_id"), "session_id", limit=MAX_U64))
     seq = _uint(event.get("seq"), "seq", allow_zero=False)
     event_id = _text(event.get("event_id"), "event_id", 512)
     if event.get("type") not in ALLOWED_EVENTS:
@@ -118,9 +119,8 @@ class DurableInbox:
         with closing(self._connect()) as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS sources(
-                  node TEXT NOT NULL, session TEXT NOT NULL,
-                  contiguous INTEGER NOT NULL DEFAULT 0,
-                  PRIMARY KEY(node, session)
+                  node TEXT PRIMARY KEY,
+                  contiguous INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE TABLE IF NOT EXISTS events(
                   node TEXT NOT NULL, session TEXT NOT NULL,
@@ -128,25 +128,29 @@ class DurableInbox:
                   event_time_ns INTEGER NOT NULL,
                   camera TEXT NOT NULL, local_id INTEGER NOT NULL,
                   payload TEXT NOT NULL, digest TEXT NOT NULL,
-                  PRIMARY KEY(node, session, seq),
-                  UNIQUE(node, session, event_id),
-                  FOREIGN KEY(node, session) REFERENCES sources(node, session)
+                  PRIMARY KEY(node, seq),
+                  UNIQUE(node, event_id),
+                  FOREIGN KEY(node) REFERENCES sources(node)
                 );
                 CREATE TABLE IF NOT EXISTS blobs(
                   sha TEXT PRIMARY KEY, size INTEGER NOT NULL,
                   mime TEXT NOT NULL, contents BLOB NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS event_blobs(
-                  node TEXT NOT NULL, session TEXT NOT NULL,
+                  node TEXT NOT NULL,
                   seq INTEGER NOT NULL, sha TEXT NOT NULL,
                   size INTEGER NOT NULL, mime TEXT NOT NULL,
-                  PRIMARY KEY(node, session, seq, sha),
-                  FOREIGN KEY(node, session, seq)
-                    REFERENCES events(node, session, seq)
+                  PRIMARY KEY(node, seq, sha),
+                  FOREIGN KEY(node, seq)
+                    REFERENCES events(node, seq)
                 );
                 CREATE INDEX IF NOT EXISTS idx_event_blobs_sha
                     ON event_blobs(sha);
             """)
+
+    # The Edge spool has ONE persistent sequence per node across restarts.
+    # session_id changes each process startup, so ACK cannot be session-scoped.
+    # A fresh spool reusing the same node ID must be explicitly reprovisioned.
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(str(self.path), timeout=10.0, isolation_level=None)
@@ -157,47 +161,47 @@ class DurableInbox:
         return db
 
     @staticmethod
-    def _advance(db: sqlite3.Connection, node: str, session: str) -> int:
+    def _advance(db: sqlite3.Connection, node: str) -> int:
         current = db.execute(
-            "SELECT contiguous FROM sources WHERE node=? AND session=?",
-            (node, session)).fetchone()[0]
+            "SELECT contiguous FROM sources WHERE node=?",
+            (node,)).fetchone()[0]
         # A missing event OR a missing referenced blob prevents ACKing past
         # that sequence. This watermark is persisted IN THE SAME transaction.
         while True:
             next_seq = current + 1
             found = db.execute(
-                "SELECT 1 FROM events WHERE node=? AND session=? AND seq=?",
-                (node, session, next_seq)).fetchone()
+                "SELECT 1 FROM events WHERE node=? AND seq=?",
+                (node, next_seq)).fetchone()
             if not found:
                 break
             missing = db.execute("""
                 SELECT 1 FROM event_blobs AS eb
                 LEFT JOIN blobs AS b ON b.sha=eb.sha AND b.size=eb.size
-                WHERE eb.node=? AND eb.session=? AND eb.seq=?
+                WHERE eb.node=? AND eb.seq=?
                       AND b.sha IS NULL LIMIT 1
-            """, (node, session, next_seq)).fetchone()
+            """, (node, next_seq)).fetchone()
             if missing:
                 break
             current = next_seq
         db.execute(
-            "UPDATE sources SET contiguous=? WHERE node=? AND session=?",
-            (current, node, session))
+            "UPDATE sources SET contiguous=? WHERE node=?",
+            (current, node))
         return current
 
     @staticmethod
-    def _ack(db: sqlite3.Connection, node: str, session: str) -> dict:
+    def _ack(db: sqlite3.Connection, node: str) -> dict:
         cursor = db.execute(
-            "SELECT contiguous FROM sources WHERE node=? AND session=?",
-            (node, session)).fetchone()
+            "SELECT contiguous FROM sources WHERE node=?",
+            (node,)).fetchone()
         contiguous = cursor[0] if cursor else 0
         max_seq = db.execute(
-            "SELECT COALESCE(MAX(seq),0) FROM events WHERE node=? AND session=?",
-            (node, session)).fetchone()[0]
+            "SELECT COALESCE(MAX(seq),0) FROM events WHERE node=?",
+            (node,)).fetchone()[0]
         missing = []
         expected = contiguous + 1
         for (seq,) in db.execute(
-            "SELECT seq FROM events WHERE node=? AND session=? AND seq>? ORDER BY seq",
-            (node, session, contiguous)):
+            "SELECT seq FROM events WHERE node=? AND seq>? ORDER BY seq",
+            (node, contiguous)):
             if seq > expected:
                 missing.append([expected, seq - 1])
             expected = seq + 1
@@ -207,11 +211,11 @@ class DurableInbox:
             missing.append([expected, max_seq])
         missing_blobs = [row[0] for row in db.execute("""
             SELECT DISTINCT eb.sha FROM event_blobs AS eb
-            JOIN events AS e ON e.node=eb.node AND e.session=eb.session AND e.seq=eb.seq
+            JOIN events AS e ON e.node=eb.node AND e.seq=eb.seq
             LEFT JOIN blobs AS b ON b.sha=eb.sha AND b.size=eb.size
-            WHERE e.node=? AND e.session=? AND e.seq>? AND b.sha IS NULL
+            WHERE e.node=? AND e.seq>? AND b.sha IS NULL
             ORDER BY eb.sha LIMIT 128
-        """, (node, session, contiguous))]
+        """, (node, contiguous))]
         return {
             "accepted": True,
             "highest_contiguous_seq": contiguous,
@@ -224,18 +228,18 @@ class DurableInbox:
         events = _decode(raw)
         validated = [_validate_event(event) for event in events]
         node, session = validated[0][:2]
-        if any(pair[:2] != (node, session) for pair in validated):
-            raise InboxError("mixed node/session batch is not allowed")
+        if any(pair[0] != node for pair in validated):
+            raise InboxError("mixed node batch is not allowed")
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 db.execute(
-                    "INSERT OR IGNORE INTO sources(node,session) VALUES(?,?)",
-                    (node, session))
+                    "INSERT OR IGNORE INTO sources(node) VALUES(?)",
+                    (node,))
                 for event, (e_node, e_session, seq, event_id, digest, refs) in zip(events, validated):
                     prev = db.execute(
-                        "SELECT event_id,digest FROM events WHERE node=? AND session=? AND seq=?",
-                        (e_node, e_session, seq)).fetchone()
+                        "SELECT event_id,digest FROM events WHERE node=? AND seq=?",
+                        (e_node, seq)).fetchone()
                     if prev:
                         if prev != (event_id, digest):
                             raise InboxError("sequence replay conflicts with durable event")
@@ -251,11 +255,11 @@ class DurableInbox:
                           event["local_id"], payload, digest))
                     for sha, size, mime in refs:
                         db.execute("""
-                            INSERT INTO event_blobs(node,session,seq,sha,size,mime)
-                            VALUES(?,?,?,?,?,?)
-                        """, (e_node, e_session, seq, sha, size, mime))
-                self._advance(db, node, session)
-                response = self._ack(db, node, session)
+                            INSERT INTO event_blobs(node,seq,sha,size,mime)
+                            VALUES(?,?,?,?,?)
+                        """, (e_node, seq, sha, size, mime))
+                self._advance(db, node)
+                response = self._ack(db, node)
                 db.execute("COMMIT")
                 return response
             except (sqlite3.IntegrityError, InboxError) as exc:
@@ -287,10 +291,10 @@ class DurableInbox:
                         (sha, len(data), mime, sqlite3.Binary(data)))
                 # A blob may unblock pending events from MULTIPLE sources.
                 affected = db.execute(
-                    "SELECT DISTINCT node,session FROM event_blobs WHERE sha=?",
+                    "SELECT DISTINCT node FROM event_blobs WHERE sha=?",
                     (sha,)).fetchall()
-                for node, session in affected:
-                    self._advance(db, node, session)
+                for (node,) in affected:
+                    self._advance(db, node)
                 db.execute("COMMIT")
             except (sqlite3.IntegrityError, InboxError) as exc:
                 db.execute("ROLLBACK")
@@ -302,19 +306,19 @@ class DurableInbox:
 
     def source_status(self, node: str, session_id: int) -> dict:
         node = _text(node, "node_id", 128)
-        session = str(_uint(session_id, "session_id"))
+        _uint(session_id, "session_id", limit=MAX_U64)  # compatibility; ACK scope is node journal
         with closing(self._connect()) as db:
-            return self._ack(db, node, session)
+            return self._ack(db, node)
 
     def read_events(self, node: str, session_id: int, after: int = 0, limit: int = 100) -> list[dict]:
         node = _text(node, "node_id", 128)
-        session = str(_uint(session_id, "session_id"))
+        _uint(session_id, "session_id", limit=MAX_U64)  # compatibility; ACK scope is node journal
         _uint(after, "after")
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise InboxError("invalid page limit")
         with closing(self._connect()) as db:
             rows = db.execute("""
-                SELECT payload FROM events WHERE node=? AND session=? AND seq>?
+                SELECT payload FROM events WHERE node=? AND seq>?
                 ORDER BY seq LIMIT ?
-            """, (node, session, after, limit)).fetchall()
+            """, (node, after, limit)).fetchall()
             return [json.loads(row[0]) for row in rows]
