@@ -85,6 +85,32 @@ def _finite_vector(values: Any, count: int) -> Optional[tuple[float, ...]]:
     return tuple(float(x) for x in values)
 
 
+def _covariance3(values: Any) -> Optional[tuple[float, ...]]:
+    """Validate an actual symmetric positive-definite 3x3 covariance.
+
+    Invalid, zero and indefinite covariance must not be treated as a measured
+    uncertainty in association OR published as a localized GlobalTrack.
+    """
+    data = _finite_vector(values, 9)
+    if data is None:
+        return None
+    L = [[0.0] * 3 for _ in range(3)]
+    for i in range(3):
+        for j in range(i):
+            if abs(data[i * 3 + j] - data[j * 3 + i]) > 1e-5:
+                return None
+        for j in range(i + 1):
+            v = data[i * 3 + j] - sum(L[i][k] * L[j][k]
+                                      for k in range(j))
+            if i == j:
+                if v <= 1e-10 or not math.isfinite(v):
+                    return None
+                L[i][j] = math.sqrt(v)
+            else:
+                L[i][j] = v / L[j][j]
+    return data
+
+
 def _observe(event: dict) -> Observation:
     spatial = event.get("spatial")
     spatial = spatial if type(spatial) is dict else {}
@@ -97,7 +123,7 @@ def _observe(event: dict) -> Observation:
 
     position = _finite_vector([world.get("x_m"), world.get("y_m"),
                                world.get("z_m")], 3) if world.get("valid") is True else None
-    covariance = _finite_vector(world.get("position_covariance_m2"), 9)
+    covariance = _covariance3(world.get("position_covariance_m2"))
     velocity = (_finite_vector([world.get("vx_mps"), world.get("vy_mps"),
                                 world.get("vz_mps")], 3)
                 if world.get("velocity_valid") is True else None)
