@@ -83,6 +83,14 @@ def main():
     serve.add_argument('--port', type=int, default=settings.get('port', 8080))
     serve.add_argument('--base-url', default=settings.get('base_url'), help='渲染设备可访问的中心地址（保存在统一配置中）')
     serve.add_argument('--render-config', type=Path, default=default_render_config())
+    ingest = sub.add_parser('ingest', help='独立启动可选 TrackEvent/Blob 持久接收服务')
+    ingest_settings = settings.get('ingest', {})
+    if not isinstance(ingest_settings, dict):
+        raise ValueError('runtime.ingest must be an object')
+    ingest.add_argument('--bind', default=ingest_settings.get('bind', '127.0.0.1'))
+    ingest.add_argument('--port', type=int, default=ingest_settings.get('port', 18081))
+    ingest.add_argument('--db', type=Path, default=Path(ingest_settings.get('db', 'data/track-inbox.sqlite3')))
+    ingest.add_argument('--token-file', type=Path, default=Path(ingest_settings['token_file']) if ingest_settings.get('token_file') else None)
     check = sub.add_parser('check-config', help='验证 center 的统一配置文件')
     check.add_argument('--config', type=Path, default=config_path)
     render = sub.add_parser('render-config', help='把地图资源地址和锚点写入 render 的唯一配置文件')
@@ -94,6 +102,17 @@ def main():
     render.add_argument('--base-url', default=settings.get('base_url'))
     render.add_argument('--render-config', type=Path, default=default_render_config())
     args = parser.parse_args()
+    if args.command == 'ingest':
+        from .track_ingest_server import serve_inbox
+        try:
+            with serve_inbox(args.bind, args.port, args.db, args.token_file) as server:
+                print(f'Durable TrackEvent Inbox: {args.bind}:{server.server_port}', flush=True)
+                server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        except (OSError, ValueError) as error:
+            parser.exit(2, f'Inbox 启动失败: {error}\n')
+        return
     if args.command == 'check-config':
         if settings.get('engine', 'python') not in ('python', 'cpp') or not isinstance(settings.get('port', 8080), int) or not 1 <= settings.get('port', 8080) <= 65535:
             parser.exit(1, '配置无效: engine 或 port\n')
