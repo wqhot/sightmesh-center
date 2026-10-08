@@ -9,6 +9,7 @@ import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import json
+import stat
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -136,10 +137,13 @@ class Handler(BaseHTTPRequestHandler):
 def serve_inbox(bind: str = "127.0.0.1", port: int = 18081,
                 db_path: str | Path = "data/track-inbox.sqlite3",
                 token_file: str | Path | None = None) -> InboxHttpServer:
-    if not 1 <= port <= 65535:
+    if not 0 <= port <= 65535:
         raise ValueError("invalid TCP port")
     token = None
     if token_file is not None:
+        mode = Path(token_file).stat().st_mode
+        if not stat.S_ISREG(mode) or mode & 0o077:
+            raise ValueError("token file must be a regular owner-only file (chmod 600)")
         token = Path(token_file).read_text(encoding="utf-8").strip()
         if not (24 <= len(token) <= 256) or any(c.isspace() for c in token):
             raise ValueError("token file must contain >=24 characters, with no whitespace")
