@@ -13,6 +13,38 @@
     "road pavement | Paving | graphite asphalt": "road",
     "sidewalks | Paving | light stone": "sidewalk"
   },
+  "association": {
+    "max_pair_dt_s": 0.25,
+    "maximum_speed_mps": 30.0,
+    "maximum_sigma_m": 15.0,
+    "max_mahalanobis_sq": 11.344866730144373,
+    "min_quality": 0.0,
+    "clock_error_gate_s": 0.05,
+    "class_labels": {
+      "tracker_uav_1": {"0": "tank", "1": "person"},
+      "tracker_ugv_1": {"0": "tank", "1": "person"}
+    },
+    "sources": {
+      "tracker_uav_1": {
+        "verified": false,
+        "domain": "shared_sim",
+        "offset_ns": 0,
+        "clock_uncertainty_ns": 5000000,
+        "alignment_id": "REPLACE_WITH_VERIFIED_SHARED_ORIGIN",
+        "coordinate_frame_id": "local_enu_v1",
+        "map_revision": "REPLACE_WITH_VERIFIED_REVISION"
+      },
+      "tracker_ugv_1": {
+        "verified": false,
+        "domain": "shared_sim",
+        "offset_ns": 0,
+        "clock_uncertainty_ns": 5000000,
+        "alignment_id": "REPLACE_WITH_VERIFIED_SHARED_ORIGIN",
+        "coordinate_frame_id": "local_enu_v1",
+        "map_revision": "REPLACE_WITH_VERIFIED_REVISION"
+      }
+    }
+  },
   "runtime": {
     "source": "../sightmesh-sim/maps/industrial-park/cesium",
     "map": "",
