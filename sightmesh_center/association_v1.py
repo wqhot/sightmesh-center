@@ -26,6 +26,7 @@ class SourceAlignment:
 @dataclass(frozen=True)
 class AssociationPolicy:
     sources: dict[str, SourceAlignment]
+    class_labels: dict[str, dict[int, str]]
     max_pair_dt_s: float = 0.25
     maximum_speed_mps: float = 30.0
     maximum_sigma_m: float = 15.0
@@ -63,6 +64,21 @@ class AssociationPolicy:
             sources[node] = SourceAlignment(
                 domain, offset, uncertainty, origin, frame, revision)
 
+        class_labels = {}
+        raw_labels = configuration.get("class_labels", {})
+        if type(raw_labels) is not dict:
+            raise ValueError("association.class_labels must be node -> {class_id: label}")
+        for node, labels in raw_labels.items():
+            if type(labels) is not dict:
+                raise ValueError("class label map must be an object")
+            class_labels[node] = {}
+            for key, name in labels.items():
+                if (type(key) is not str or not key.isdecimal() or
+                    type(name) is not str or not name.strip() or
+                    len(name) > 128):
+                    raise ValueError("invalid model-specific class mapping")
+                class_labels[node][int(key)] = name.strip().lower()
+
         params = {}
         limits = {
             "max_pair_dt_s": (0, 2),
@@ -77,7 +93,7 @@ class AssociationPolicy:
             if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f"invalid association.{name}")
             params[name] = float(value)
-        return AssociationPolicy(sources=sources, **params)
+        return AssociationPolicy(sources=sources, class_labels=class_labels, **params)
 
 
 @dataclass(frozen=True)
@@ -195,8 +211,14 @@ def _candidate(a: Tracklet, b: Tracklet,
                policy: AssociationPolicy) -> PairCandidate | None:
     if a.key.node == b.key.node:
         return None   # V1 links only separate physical nodes.
-    if a.class_id is None or a.class_id != b.class_id:
-        return None   # Unknown classes are not evidence of identity.
+    if a.class_id is None or b.class_id is None:
+        return None
+    # Numeric class IDs are MODEL-LOCAL. Require explicit common semantic
+    # class labels; custom tank class 0 must not match COCO person class 0.
+    label_a = policy.class_labels.get(a.key.node, {}).get(a.class_id)
+    label_b = policy.class_labels.get(b.key.node, {}).get(b.class_id)
+    if not label_a or label_a != label_b:
+        return None
     sa = policy.sources.get(a.key.node)
     sb = policy.sources.get(b.key.node)
     if sa is None or sb is None:
