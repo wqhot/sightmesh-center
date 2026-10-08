@@ -63,8 +63,12 @@ class Tracklet:
 
     @property
     def latest(self) -> Optional[Observation]:
-        # Last observation with valid world frame and covariance.
+        # Do not use a seconds-old valid world estimate when subsequent Edge
+        # updates have become unobservable/invalid. This is a safety bound
+        # independent of any between-node packet timing threshold.
         for item in reversed(self.observations):
+            if self.end_ns - item.event_ns > 250_000_000:
+                break
             if item.position is not None and item.covariance is not None:
                 return item
         return None
