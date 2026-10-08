@@ -119,6 +119,7 @@ class InboxHttpTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             token = Path(tmp) / "token"
             token.write_text("change-this-long-development-token-123456")
+            token.chmod(0o600)
             server = serve_inbox("127.0.0.1", 0, Path(tmp) / "db.sqlite3", token)
             worker = threading.Thread(target=server.serve_forever, daemon=True)
             worker.start()
