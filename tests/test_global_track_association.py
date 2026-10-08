@@ -56,7 +56,10 @@ def policy(**updates):
     }
     for node, patch in updates.items():
         sources[node].update(patch)
-    return AssociationPolicy.from_dict({"sources": sources})
+    return AssociationPolicy.from_dict({
+        "sources": sources,
+        "class_labels": {"uav": {"1": "tank"}, "ugv": {"1": "tank"}}
+    })
 
 
 class TrackletAssociationTests(unittest.TestCase):
@@ -95,6 +98,9 @@ class TrackletAssociationTests(unittest.TestCase):
             policy(ugv={"map_revision": "map-other"}),
             policy(ugv={"domain": "shared_utc"}),
             policy(ugv={"clock_uncertainty_ns": 900_000_000}),
+            AssociationPolicy.from_dict({"sources": {
+                n: {**vars(v), "verified": True} for n, v in policy().sources.items()
+            }, "class_labels": {"uav": {"1": "tank"}, "ugv": {"1": "person"}}}),
         ]:
             state = repo.recompute(pol)
             self.assertEqual(state["selected_pair_count"], 0)
