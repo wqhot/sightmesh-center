@@ -27,6 +27,10 @@ Edge 的历史可靠 JSON Event 含 `event_time_ns` 和位置 `coordinate_frame_
     "max_mahalanobis_sq": 11.344866730144373,
     "min_quality": 0.0,
     "clock_error_gate_s": 0.05,
+    "class_labels": {
+      "tracker_uav_1": {"0": "tank", "1": "person"},
+      "tracker_ugv_1": {"0": "tank", "1": "person"}
+    },
     "sources": {
       "tracker_uav_1": {
         "verified": true,
@@ -56,6 +60,7 @@ Edge 的历史可靠 JSON Event 含 `event_time_ns` 和位置 `coordinate_frame_
 - `domain=shared_sim` 表示各节点真正共用 Gazebo/PX4 仿真时间，或已证明在同一域；`shared_utc` 表示经可靠映射后的 UTC。不同 PX4 boot clock 不能仅因纳秒数形式相同便标为 `shared_utc`。
 - `alignment_id` 必须表示同一个已实际对齐的 ENU 源点+姿态定义。地图版本一致不等于本地 PX4 Home 已对齐。
 - `offset_ns` 与 `clock_uncertainty_ns` 是实测/经标准协议同步校验的时钟变换，不是根据帧号猜值。
+- `class_labels` 是每个模型的**真实标签定义**，不能假设类别 ID=0 都是 person 或 tank。示例中的 `0 → tank` 必须按 RKNN/MNN 的实际 label 文件确认；不同模型的数字 ID 即使相同，类别语义不同也禁止关联。缺少明确标签映射的节点只保留 provisional/unlocalized。
 - `map_revision` 需与**事件内** `spatial.localization_quality.map.revision` 且 `map.valid=true` 一致。无地图修订的事件可保留为单节点观测，**当前不会参与跨节点成对关联**。
 - 跨节点异构设备位置协方差如未知、零矩阵、异常不对称或数值非正定时，必须拒绝物理自动合并，不能默认把单位阵视为已标定不确定度。
 
