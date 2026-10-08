@@ -135,11 +135,13 @@ class OrToolsSolver:
                         if idx in (pair.left, pair.right)]
             if incident:
                 model.Add(sum(incident) <= 1)
-        # Maximize cardinality first, then prefer low physical cost.
-        # 1e6 integer reward dominates the bounded physical tie-break sum.
+        # Lexicographic cardinality then physical cost. The cardinality
+        # reward exceeds ALL possible accumulated edge-cost differences.
         if len(ordered) > 10_000:
             raise ValueError("OR-Tools candidate cap exceeded")
-        model.Maximize(sum((1_000_000 - min(100_000, int(edge.cost * 1000))) *
+        cardinality_reward = (len(tracklets) // 2 + 1) * 100001
+        model.Maximize(sum((cardinality_reward -
+                            min(100000, int(edge.cost * 1000))) *
                            vars_[i] for i, edge in enumerate(ordered)))
         solver = cp_model.CpSolver()
         solver.parameters.num_search_workers = 1
