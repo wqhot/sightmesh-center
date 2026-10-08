@@ -115,7 +115,12 @@ static void collect(const aiScene*scene,const aiNode*node,const aiMatrix4x4&pare
     }
     for(unsigned ci=0;ci<node->mNumChildren;ci++)collect(scene,node->mChildren[ci],world,semantics,prefix,entities,bounds,hasBounds,triangles);
 }
-std::string source_digest(const fs::path&source,const fs::path&config){std::vector<fs::path> files;for(auto&i:fs::recursive_directory_iterator(source))if(i.is_regular_file())files.push_back(i.path());std::sort(files.begin(),files.end());std::string hashInput=kImporterVersion;hashInput.push_back('\0');for(auto&p:files){auto rel=p.lexically_relative(source).generic_string();auto data=read(p);hashInput+=rel;hashInput.push_back('\0');hashInput+=data;hashInput.push_back('\0');}auto configBytes=read(config);auto options=parse(configBytes);if(options.isMember("runtime")){options.removeMember("runtime");configBytes=encode(options);}hashInput+=configBytes;return sha(hashInput);}
+std::string source_digest(const fs::path&source,const fs::path&config){std::vector<fs::path> files;for(auto&i:fs::recursive_directory_iterator(source))if(i.is_regular_file())files.push_back(i.path());std::sort(files.begin(),files.end());std::string hashInput=kImporterVersion;hashInput.push_back('\0');
+#ifdef SIGHTMESH_USE_GEOGRAPHICLIB
+    // Different geodetic implementations must not share a source cache key.
+    hashInput += "geodesy=geographiclib";hashInput.push_back('\0');
+#endif
+for(auto&p:files){auto rel=p.lexically_relative(source).generic_string();auto data=read(p);hashInput+=rel;hashInput.push_back('\0');hashInput+=data;hashInput.push_back('\0');}auto configBytes=read(config);auto options=parse(configBytes);if(options.isMember("runtime")){options.removeMember("runtime");configBytes=encode(options);}hashInput+=configBytes;return sha(hashInput);}
 static bool validCached(const fs::path&path,const std::string&revision){try{std::string manifestBytes=read(path/"manifest.json");JValue manifest=parse(manifestBytes);std::string geometry=read(path/"geometry.json.gz");return manifest["map_revision"].asString()==revision&&sha(geometry)==manifest["geometry_sha256"].asString()&&(!fs::exists(path/"manifest.sha256")||read(path/"manifest.sha256").substr(0,64)==sha(manifestBytes));}catch(...){return false;}}
 fs::path build_map(const fs::path&sourceArg,const fs::path&outputArg,const fs::path&configPath){
     fs::path source=fs::canonical(sourceArg),output=fs::absolute(outputArg);JValue config=parse(read(configPath));std::string rawDigest=source_digest(source,configPath);
