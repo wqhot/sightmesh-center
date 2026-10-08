@@ -28,6 +28,10 @@ target_compile_features(sightmesh_map_geometry PUBLIC cxx_std_14)
 target_compile_options(sightmesh_map_geometry PRIVATE -Wall -Wextra -Wpedantic)
 
 add_library(sightmesh_map_importer src/importer.cpp)
+if(SIGHTMESH_USE_GEOGRAPHICLIB)
+    # Keep the importer cache key consistent with the active geodesy backend.
+    target_compile_definitions(sightmesh_map_importer PRIVATE SIGHTMESH_USE_GEOGRAPHICLIB=1)
+endif()
 target_compile_features(sightmesh_map_importer PUBLIC cxx_std_17)
 target_link_libraries(sightmesh_map_importer PUBLIC assimp::assimp JsonCpp::JsonCpp OpenSSL::Crypto ZLIB::ZLIB sightmesh_map_geodesy)
 add_executable(sightmesh-map-cpp src/importer_main.cpp)
