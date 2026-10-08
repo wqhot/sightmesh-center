@@ -1,4 +1,5 @@
 #include <assimp/Importer.hpp>
+#include "sightmesh_map/geodesy.hpp"
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <json/json.h>
@@ -30,11 +31,14 @@ static std::string sha(const std::string&v){std::array<unsigned char,EVP_MAX_MD_
 static std::string gzip(const std::string&in){z_stream z{};if(deflateInit2(&z,Z_DEFAULT_COMPRESSION,Z_DEFLATED,MAX_WBITS+16,8,Z_DEFAULT_STRATEGY)!=Z_OK)throw std::runtime_error("gzip init failed");z.next_in=(Bytef*)in.data();z.avail_in=(uInt)in.size();std::string out;char buf[65536];int rc;do{z.next_out=(Bytef*)buf;z.avail_out=sizeof(buf);rc=deflate(&z,Z_FINISH);if(rc!=Z_OK&&rc!=Z_STREAM_END&&rc!=Z_BUF_ERROR){deflateEnd(&z);throw std::runtime_error("gzip failed");}out.append(buf,sizeof(buf)-z.avail_out);}while(rc!=Z_STREAM_END);deflateEnd(&z);return out;}
 static void write(const fs::path&p,const std::string&s){fs::create_directories(p.parent_path());fs::path tmp=p;tmp += ".tmp";{std::ofstream f(tmp,std::ios::binary|std::ios::trunc);if(!f||!f.write(s.data(),s.size()))throw std::runtime_error("cannot write "+tmp.string());}std::error_code ec;fs::rename(tmp,p,ec);if(ec){fs::remove(p,ec);ec.clear();fs::rename(tmp,p,ec);}if(ec)throw std::runtime_error("cannot atomically publish "+p.string()+": "+ec.message());}
 static JValue vec(double x,double y,double z){JValue a(Json::arrayValue);a.append(x);a.append(y);a.append(z);return a;}
-static JValue transform(const JValue&anchor){
-    constexpr double pi=3.14159265358979323846, a=6378137.0,b=6356752.314245179;
-    double lon=anchor["longitude_deg"].asDouble()*pi/180,lat=anchor["latitude_deg"].asDouble()*pi/180,h=anchor["ellipsoid_height_m"].asDouble();
-    double sl=sin(lon),cl=cos(lon),sp=sin(lat),cp=cos(lat),e2=1-(b/a)*(b/a),n=a/sqrt(1-e2*sp*sp);
-    JValue x(Json::arrayValue);for(double q:{-sl,cl,0.,0.,-sp*cl,-sp*sl,cp,0.,cp*cl,cp*sl,sp,0.,(n+h)*cp*cl,(n+h)*cp*sl,(n*(1-e2)+h)*sp,1.})x.append(q);return x;
+static JValue transform(const JValue& anchor) {
+    const auto matrix = enu_to_ecef(
+        anchor["longitude_deg"].asDouble(),
+        anchor["latitude_deg"].asDouble(),
+        anchor["ellipsoid_height_m"].asDouble());
+    JValue result(Json::arrayValue);
+    for (double value : matrix) result.append(value);
+    return result;
 }
 static bool closeMatrix(const JValue&got,const JValue&expected){if(!got.isArray()||got.size()!=16)return false;for(unsigned i=0;i<16;i++)if(!got[i].isNumeric()||std::abs(got[i].asDouble()-expected[i].asDouble())>1e-5)return false;return true;}
 static aiVector3D apply(const aiMatrix4x4&m,const aiVector3D&v){return m*v;}
@@ -111,7 +115,12 @@ static void collect(const aiScene*scene,const aiNode*node,const aiMatrix4x4&pare
     }
     for(unsigned ci=0;ci<node->mNumChildren;ci++)collect(scene,node->mChildren[ci],world,semantics,prefix,entities,bounds,hasBounds,triangles);
 }
-std::string source_digest(const fs::path&source,const fs::path&config){std::vector<fs::path> files;for(auto&i:fs::recursive_directory_iterator(source))if(i.is_regular_file())files.push_back(i.path());std::sort(files.begin(),files.end());std::string hashInput=kImporterVersion;hashInput.push_back('\0');for(auto&p:files){auto rel=p.lexically_relative(source).generic_string();auto data=read(p);hashInput+=rel;hashInput.push_back('\0');hashInput+=data;hashInput.push_back('\0');}auto configBytes=read(config);auto options=parse(configBytes);if(options.isMember("runtime")){options.removeMember("runtime");configBytes=encode(options);}hashInput+=configBytes;return sha(hashInput);}
+std::string source_digest(const fs::path&source,const fs::path&config){std::vector<fs::path> files;for(auto&i:fs::recursive_directory_iterator(source))if(i.is_regular_file())files.push_back(i.path());std::sort(files.begin(),files.end());std::string hashInput=kImporterVersion;hashInput.push_back('\0');
+#ifdef SIGHTMESH_USE_GEOGRAPHICLIB
+    // Different geodetic implementations must not share a source cache key.
+    hashInput += "geodesy=geographiclib";hashInput.push_back('\0');
+#endif
+for(auto&p:files){auto rel=p.lexically_relative(source).generic_string();auto data=read(p);hashInput+=rel;hashInput.push_back('\0');hashInput+=data;hashInput.push_back('\0');}auto configBytes=read(config);auto options=parse(configBytes);if(options.isMember("runtime")){options.removeMember("runtime");configBytes=encode(options);}hashInput+=configBytes;return sha(hashInput);}
 static bool validCached(const fs::path&path,const std::string&revision){try{std::string manifestBytes=read(path/"manifest.json");JValue manifest=parse(manifestBytes);std::string geometry=read(path/"geometry.json.gz");return manifest["map_revision"].asString()==revision&&sha(geometry)==manifest["geometry_sha256"].asString()&&(!fs::exists(path/"manifest.sha256")||read(path/"manifest.sha256").substr(0,64)==sha(manifestBytes));}catch(...){return false;}}
 fs::path build_map(const fs::path&sourceArg,const fs::path&outputArg,const fs::path&configPath){
     fs::path source=fs::canonical(sourceArg),output=fs::absolute(outputArg);JValue config=parse(read(configPath));std::string rawDigest=source_digest(source,configPath);
