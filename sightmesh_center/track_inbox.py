@@ -12,6 +12,7 @@ import hmac
 import json
 import re
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -114,7 +115,7 @@ class DurableInbox:
     def __init__(self, database: str | Path):
         self.path = Path(database).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS sources(
                   node TEXT NOT NULL, session TEXT NOT NULL,
@@ -225,7 +226,7 @@ class DurableInbox:
         node, session = validated[0][:2]
         if any(pair[:2] != (node, session) for pair in validated):
             raise InboxError("mixed node/session batch is not allowed")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 db.execute(
@@ -272,7 +273,7 @@ class DurableInbox:
             raise InboxError("invalid MIME type")
         if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), sha):
             raise InboxError("blob SHA256 mismatch")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 existing = db.execute(
@@ -302,7 +303,7 @@ class DurableInbox:
     def source_status(self, node: str, session_id: int) -> dict:
         node = _text(node, "node_id", 128)
         session = str(_uint(session_id, "session_id"))
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             return self._ack(db, node, session)
 
     def read_events(self, node: str, session_id: int, after: int = 0, limit: int = 100) -> list[dict]:
@@ -311,7 +312,7 @@ class DurableInbox:
         _uint(after, "after")
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise InboxError("invalid page limit")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             rows = db.execute("""
                 SELECT payload FROM events WHERE node=? AND session=? AND seq>?
                 ORDER BY seq LIMIT ?
