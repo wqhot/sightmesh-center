@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 sightmesh-map = "sightmesh_center.__main__:main"
+sightmesh-track-inbox = "sightmesh_center.track_ingest_server:main"
 
 [tool.setuptools.packages.find]
 include = ["sightmesh_center*"]
