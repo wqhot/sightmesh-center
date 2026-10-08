@@ -106,6 +106,17 @@ class TrackletAssociationTests(unittest.TestCase):
             self.assertEqual(state["selected_pair_count"], 0)
             self.assertEqual(len(state["global_tracks"]), 2)
 
+    def test_singular_or_indefinite_covariance_does_not_create_localized_track(self):
+        invalid = ev("uav", 1, 1_000_000_000, 10)
+        invalid["spatial"]["world"]["position_covariance_m2"] = [0] * 9
+        self.inbox.store_batch(envelope(invalid))
+        tracklets = load_committed_tracklets(self.database)
+        self.assertEqual(len(tracklets), 1)
+        self.assertIsNone(tracklets[0].latest)
+        world = GlobalTrackRepository(self.database).recompute(policy())
+        self.assertEqual(world["global_tracks"][0]["status"], "unlocalized")
+        self.assertIsNone(world["global_tracks"][0]["representative"])
+
     def test_incomplete_blob_event_is_not_used_as_tracklet(self):
         import hashlib
         raw = b"missing-content"
