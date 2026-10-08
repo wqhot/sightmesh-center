@@ -1,5 +1,7 @@
 # sightmesh-center
 
+Center 的可靠事件接入、全局关联、Open3D/OctoMap、OR-Tools 和 D2000 移植任务统一参见 [Center 路线图](docs/ROADMAP.md)。
+
 ## 统一配置入口
 
 每个组件只有一个需要维护的运行配置文件。环境变量不再覆盖应用参数；命令行参数可用于单次运行覆盖。
