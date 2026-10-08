@@ -1,5 +1,7 @@
 # sightmesh-center
 
+可靠事件接入另有**可选**的 [TrackEvent/Blob 持久 Inbox](docs/reliable-track-inbox.md)，与当前地图查询服务分端口部署；全局关联及 NNG 可靠事件仍未实现。
+
 ## 统一配置入口
 
 每个组件只有一个需要维护的运行配置文件。环境变量不再覆盖应用参数；命令行参数可用于单次运行覆盖。
