@@ -1,5 +1,8 @@
 # sightmesh-center
 
+可选 [NNG REQ/REP 可靠事件网关](docs/nng-reliable-ingest.md) 位于独立 `cpp/transport/` 工程；它只向本机 [持久 Inbox](docs/reliable-track-inbox.md) 转发，不复制数据存储和 ACK 规则。
+
+
 可靠事件接入另有**可选**的 [TrackEvent/Blob 持久 Inbox](docs/reliable-track-inbox.md)，与当前地图查询服务分端口部署；全局关联及 NNG 可靠事件仍未实现。
 
 ## 统一配置入口
