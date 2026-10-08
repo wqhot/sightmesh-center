@@ -11,7 +11,7 @@ import hmac
 import json
 import stat
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from .track_inbox import (
     DurableInbox, InboxError, MAX_BATCH_BYTES, MAX_BLOB_BYTES,
@@ -69,11 +69,37 @@ class Handler(BaseHTTPRequestHandler):
         return body
 
     def do_GET(self):
-        path = urlsplit(self.path).path
+        parsed = urlsplit(self.path)
+        path = parsed.path
         if path == "/health":
             self._reply(200, {"service": "sightmesh-track-inbox", "status": "running"})
-        else:
+            return
+        if path not in ("/api/v1/mtmct/global-tracks",
+                        "/api/v1/mtmct/global-id-revisions"):
             self._reply(404, {"error": "not found"})
+            return
+        if not self._authorized():
+            return
+        from .global_tracks import GlobalTrackRepository
+        try:
+            repository = GlobalTrackRepository(self.server.inbox.path)
+            if path.endswith("/global-tracks"):
+                self._reply(200, repository.latest())
+            else:
+                params = parse_qs(parsed.query, strict_parsing=True)
+                if set(params) - {"after", "limit"}:
+                    raise ValueError("unknown revision query parameter")
+                after = int(params.get("after", ["0"])[0])
+                limit = int(params.get("limit", ["100"])[0])
+                self._reply(200, {
+                    "schema_major": 1,
+                    "identity_revisions": repository.revisions_after(after, limit)
+                })
+        except (ValueError, OverflowError) as exc:
+            self._reply(400, {"error": str(exc)})
+        except Exception:
+            self.log_exception()
+            self._reply(503, {"error": "global state query unavailable"})
 
     def do_POST(self):
         if urlsplit(self.path).path != "/api/v1/mtmct/events/batch":
