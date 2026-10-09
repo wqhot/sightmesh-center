@@ -165,8 +165,12 @@ bool makeState(const Json::Value& world, v1::Envelope& out) {
             !align["map_revision"].isString() ||
             align["coordinate_frame_id"].asString() !=
                 rep["coordinate_frame_id"].asString() ||
-            align["map_revision"].asString() != rep["map_revision"].asString())
-            return false;
+            align["map_revision"].asString() != rep["map_revision"].asString()) {
+            // An unverified standalone Edge cannot poison the whole
+            // Center world snapshot. Keep its ID, OMIT its 3D state; the
+            // Render subscriber will not place it on the map.
+            continue;
+        }
         track->set_alignment_id(align["alignment_id"].asString());
         track->set_source_clock_domain(
             "source-event-domain-not-guaranteed-utc");
