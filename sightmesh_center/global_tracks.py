@@ -178,6 +178,22 @@ class GlobalTrackRepository:
             [sorted((tracks[i] for i in group), key=lambda t: t.uid)
              for group in grouped],
             key=lambda members: tuple(t.uid for t in members))
+        # A watch loop may poll unchanged input every two seconds.
+        # Avoid re-solving expensive least-squares windows when source events,
+        # group membership and both estimator policies have not changed.
+        # The subsequent IMMEDIATE transaction repeats this check against
+        # concurrent writers before updating world/identity revisions.
+        with closing(self._connect()) as read_db:
+            previous = read_db.execute(
+                "SELECT signature,world_revision FROM association_meta WHERE id=1"
+            ).fetchone()
+            if previous and previous[0] == signature:
+                cached = read_db.execute(
+                    "SELECT payload FROM world_snapshots_v1 WHERE world_revision=?",
+                    (previous[1],)).fetchone()
+                if cached is not None:
+                    return json.loads(cached[0])
+
         # Deterministically evaluate the optional estimator outside the DB
         # write transaction; failure is recorded, never silently substituted
         # with a confident new global position.
