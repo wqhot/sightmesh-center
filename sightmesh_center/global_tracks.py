@@ -295,7 +295,9 @@ class GlobalTrackRepository:
                     "alignment_policy": {
                         node: {"alignment_id": v.alignment_id,
                                "coordinate_frame_id": v.coordinate_frame_id,
-                               "map_revision": v.map_revision}
+                               "map_revision": v.map_revision,
+                               "clock_domain": v.domain,
+                               "clock_uncertainty_ns": v.clock_uncertainty_ns}
                         for node, v in policy.sources.items()
                     },
                     "solver": solver_name,
