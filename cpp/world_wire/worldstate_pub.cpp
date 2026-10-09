@@ -12,6 +12,8 @@
 #include <chrono>
 #include <csignal>
 #include <cmath>
+#include <cstdlib>
+#include <stdexcept>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -194,6 +196,41 @@ bool makeState(const Json::Value& world, v1::Envelope& out) {
     return true;
 }
 
+bool makeRevisionHint(const Json::Value& change, v1::Envelope& out) {
+    if (!change.isObject() || !change["revision"].isUInt64() ||
+        !change["world_revision"].isUInt64() ||
+        !change["tracklet_uid"].isString() ||
+        !change["reason"].isString()) return false;
+    const std::uint64_t revision = change["revision"].asUInt64();
+    if (revision == 0) return false;
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const auto publish_time_ns = std::chrono::duration_cast<
+        std::chrono::nanoseconds>(now).count();
+    if (publish_time_ns <= 0) return false;
+    out.set_schema_major(1);
+    out.set_schema_minor(1);
+    out.set_node_id("sightmesh_center");
+    out.set_session_id("center-worldstate-v1");
+    out.set_stream_id("identity_revision_hint");
+    out.set_stream_sequence(revision);
+    out.set_message_id("center/identity_revision_hint/" + std::to_string(revision));
+    out.set_event_time_ns(static_cast<std::uint64_t>(publish_time_ns));
+    out.set_clock_domain(v1::CLOCK_UNIX_UTC);
+    // This NNG PUB packet is advisory only. The durable revision record
+    // remains in Center SQLite and HTTP /global-id-revisions.
+    out.set_delivery_class(v1::STATE_LATEST);
+    auto* hint = out.mutable_identity_mapping_change();
+    hint->set_revision(revision);
+    hint->set_world_revision(change["world_revision"].asUInt64());
+    hint->set_tracklet_uid(change["tracklet_uid"].asString());
+    if (change["old_global_id"].isString())
+        hint->set_old_global_id(change["old_global_id"].asString());
+    if (change["new_global_id"].isString())
+        hint->set_new_global_id(change["new_global_id"].asString());
+    hint->set_reason(change["reason"].asString());
+    return true;
+}
+
 bool publish(nng_socket pub, const std::string& topic, const v1::Envelope& msg) {
     std::string wire;
     if (!msg.SerializeToString(&wire)) return false;
@@ -243,14 +280,41 @@ int main(int argc, char** argv) {
     const std::string url = "http://127.0.0.1:" +
         std::to_string(inbox_port) + "/api/v1/mtmct/global-tracks";
     std::uint64_t last_revision = 0;
+    std::uint64_t last_hint = 0;
+    auto last_broadcast = std::chrono::steady_clock::time_point{};
+    const std::string hints_url = "http://127.0.0.1:" +
+        std::to_string(inbox_port) + "/api/v1/mtmct/global-id-revisions";
     while (running) {
         Json::Value data;
         if (fetch(url, token, data)) {
             v1::Envelope packet;
+            const auto now = std::chrono::steady_clock::now();
             if (makeState(data, packet) &&
-                packet.stream_sequence() > last_revision) {
-                if (publish(pub, "/sightmesh/center/world_state", packet))
+                (packet.stream_sequence() >= last_revision) &&
+                (packet.stream_sequence() > last_revision ||
+                 now - last_broadcast >= std::chrono::seconds(1))) {
+                // Full snapshot rebroadcast lets late SUB readers recover
+                // without another Center world revision. It is not a
+                // durable confirmation or a new sensor observation.
+                if (publish(pub, "/sightmesh/center/world_state", packet)) {
                     last_revision = packet.stream_sequence();
+                    last_broadcast = now;
+                }
+            }
+            // Revision PUB messages are HINTS ONLY. The authoritative
+            // append-only history is replayable over authenticated HTTP.
+            Json::Value revisions;
+            if (fetch(hints_url + "?after=" + std::to_string(last_hint) +
+                      "&limit=100", token, revisions) &&
+                revisions["identity_revisions"].isArray()) {
+                for (const auto& change : revisions["identity_revisions"]) {
+                    v1::Envelope hint;
+                    if (!makeRevisionHint(change, hint) ||
+                        hint.stream_sequence() != last_hint + 1) break;
+                    if (!publish(pub, "/sightmesh/center/identity_revision_hint",
+                                 hint)) break;
+                    last_hint = hint.stream_sequence();
+                }
             }
         }
         for (int elapsed=0; running && elapsed<period_ms; elapsed+=50)
