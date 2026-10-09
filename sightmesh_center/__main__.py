@@ -96,6 +96,8 @@ def main():
         settings.get('ingest', {}).get('db', 'data/track-inbox.sqlite3')))
     associate.add_argument('--policy', type=Path, help='独立 JSON 策略文件；默认使用 center.json 的 association')
     associate.add_argument('--solver', choices=('greedy', 'ortools', 'clique'), default='greedy')
+    associate.add_argument('--fusion', choices=('off', 'ci'), default='off',
+                           help='显式开启实验性 CI 位置估计；仅存储旁路结果，不覆盖正式位置')
     associate.add_argument('--max-events', type=int, default=200000)
     associate.add_argument('--watch', action='store_true', help='按周期重新评估，不是系统守护服务')
     associate.add_argument('--interval', type=float, default=2.0)
@@ -117,20 +119,28 @@ def main():
         import time
         from .association_v1 import AssociationPolicy
         from .global_tracks import GlobalTrackRepository
+        from .fusion_ci import FusionPolicy
         try:
             raw_policy = (json.loads(args.policy.read_text(encoding='utf-8'))
                           if args.policy else configuration.get('association', {}))
             policy = AssociationPolicy.from_dict(raw_policy)
             if not 0.1 <= args.interval <= 3600 or args.max_events <= 0:
                 raise ValueError('invalid association interval/event limit')
+            fusion_policy = (FusionPolicy.from_dict(
+                configuration.get('fusion', {}))
+                if args.fusion == 'ci' else None)
             repository = GlobalTrackRepository(args.db)
             while True:
-                state = repository.recompute(policy, args.solver, args.max_events)
+                state = repository.recompute(
+                    policy, args.solver, args.max_events, fusion_policy)
                 print(json.dumps({
                     'world_revision': state['world_revision'],
                     'global_track_count': len(state['global_tracks']),
                     'candidate_count': state['candidate_count'],
                     'selected_pair_count': state['selected_pair_count'],
+                    'experimental_fusion_accepted':
+                        state.get('experimental_fusion_accepted', 0),
+                    'fusion_mode': state.get('fusion_mode', 'off'),
                     'last_identity_revision': state['last_identity_revision'],
                 }, ensure_ascii=False), flush=True)
                 if not args.watch:
