@@ -20,6 +20,7 @@ from .association_v1 import (
 from .tracklets import Tracklet, load_committed_tracklets
 from .association_v2 import form_consistent_groups
 from .fusion_ci import FusionPolicy, estimate_group
+from .window_factor_graph import WindowPolicy, estimate_window
 
 
 def _canonical(value: Any) -> str:
@@ -132,7 +133,8 @@ class GlobalTrackRepository:
     def recompute(self, policy: AssociationPolicy,
                   solver_name: str = "greedy",
                   max_events: int = 200_000,
-                  fusion_policy: FusionPolicy | None = None) -> dict:
+                  fusion_policy: FusionPolicy | None = None,
+                  window_policy: WindowPolicy | None = None) -> dict:
         tracks = load_committed_tracklets(self.database, max_events)
         pairs = propose_candidates(tracks, policy)
         if solver_name == "clique":
@@ -163,6 +165,8 @@ class GlobalTrackRepository:
             "solver": solver_name,
             "fusion_policy": vars(fusion_policy) if fusion_policy is not None else None,
             "fusion_algorithm_revision": 1,
+            "window_factor_policy": vars(window_policy) if window_policy is not None else None,
+            "window_factor_algorithm_revision": 1,
             "class_labels": policy.class_labels,
             "selected": [(tracks[e.left].uid, tracks[e.right].uid,
                           round(e.d2, 8), e.evidence) for e in selected],
@@ -180,6 +184,9 @@ class GlobalTrackRepository:
         estimates = ([estimate_group(members, policy, fusion_policy)
                       for members in groups]
                      if fusion_policy is not None else None)
+        windows = ([estimate_window(members, policy, window_policy)
+                    for members in groups]
+                   if window_policy is not None else None)
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -276,6 +283,14 @@ class GlobalTrackRepository:
                             else "rejected")
                         entry["fusion_rejection_reason"] = evaluation["reason"]
                         entry["fusion_diagnostics"] = evaluation["diagnostics"]
+                    if windows is not None:
+                        analysis = windows[i]
+                        entry["window_estimate"] = analysis.get("estimate")
+                        entry["window_estimate_status"] = (
+                            "experimental_conditional" if analysis["accepted"]
+                            else "rejected")
+                        entry["window_rejection_reason"] = analysis["reason"]
+                        entry["window_diagnostics"] = analysis["diagnostics"]
                     snapshots.append(entry)
 
                 # Revisions are append-only and must be stored in the SAME
@@ -314,6 +329,12 @@ class GlobalTrackRepository:
                     "association_status": "conservative_baseline_not_joint_fusion",
                     "fusion_mode": ("experimental_ci_sidecar_not_published"
                                     if fusion_policy is not None else "off"),
+                    "window_factor_mode": (
+                        "experimental_fixed_lag_sidecar_not_published"
+                        if window_policy is not None else "off"),
+                    "experimental_window_accepted": (
+                        sum(1 for item in windows if item["accepted"])
+                        if windows is not None else 0),
                     "experimental_fusion_accepted": (
                         sum(1 for item in estimates if item["accepted"])
                         if estimates is not None else 0),
