@@ -56,6 +56,21 @@
     "max_bearing_sample_age_s": 0.25,
     "min_position_sources": 2
   },
+  "window_factor_graph": {
+    "model": "constant_velocity",
+    "window_seconds": 1.5,
+    "min_time_baseline_seconds": 0.15,
+    "min_ray_intersection_degrees": 4.0,
+    "max_clock_uncertainty_seconds": 0.03,
+    "max_bearing_timestamp_delta_seconds": 0.2,
+    "max_condition_number": 1000000.0,
+    "max_normalized_rms": 4.0,
+    "max_target_speed_mps": 80.0,
+    "max_observations": 64,
+    "independent_source_errors_verified": false,
+    "independent_temporal_errors_verified": false,
+    "allow_single_position_anchor": true
+  },
   "runtime": {
     "source": "../sightmesh-sim/maps/industrial-park/cesium",
     "map": "",
