@@ -45,6 +45,17 @@
       }
     }
   },
+  "fusion": {
+    "method": "ci_position_bearing_veto",
+    "max_epoch_offset_s": 0.25,
+    "max_clock_uncertainty_s": 0.05,
+    "motion_sigma_speed_mps": 30.0,
+    "max_input_sigma_m": 15.0,
+    "max_residual_d2": 25.0,
+    "max_bearing_residual_sigma": 4.0,
+    "max_bearing_sample_age_s": 0.25,
+    "min_position_sources": 2
+  },
   "runtime": {
     "source": "../sightmesh-sim/maps/industrial-park/cesium",
     "map": "",

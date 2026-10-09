@@ -19,6 +19,7 @@ from .association_v1 import (
     AssociationPolicy, GreedySolver, OrToolsSolver, propose_candidates)
 from .tracklets import Tracklet, load_committed_tracklets
 from .association_v2 import form_consistent_groups
+from .fusion_ci import FusionPolicy, estimate_group
 
 
 def _canonical(value: Any) -> str:
@@ -130,7 +131,8 @@ class GlobalTrackRepository:
 
     def recompute(self, policy: AssociationPolicy,
                   solver_name: str = "greedy",
-                  max_events: int = 200_000) -> dict:
+                  max_events: int = 200_000,
+                  fusion_policy: FusionPolicy | None = None) -> dict:
         tracks = load_committed_tracklets(self.database, max_events)
         pairs = propose_candidates(tracks, policy)
         if solver_name == "clique":
@@ -159,6 +161,8 @@ class GlobalTrackRepository:
                     "minimum_ray_crossing_deg", "maximum_ray_separation_sigma")}
             },
             "solver": solver_name,
+            "fusion_policy": vars(fusion_policy) if fusion_policy is not None else None,
+            "fusion_algorithm_revision": 1,
             "class_labels": policy.class_labels,
             "selected": [(tracks[e.left].uid, tracks[e.right].uid,
                           round(e.d2, 8), e.evidence) for e in selected],
@@ -170,6 +174,12 @@ class GlobalTrackRepository:
             [sorted((tracks[i] for i in group), key=lambda t: t.uid)
              for group in grouped],
             key=lambda members: tuple(t.uid for t in members))
+        # Deterministically evaluate the optional estimator outside the DB
+        # write transaction; failure is recorded, never silently substituted
+        # with a confident new global position.
+        estimates = ([estimate_group(members, policy, fusion_policy)
+                      for members in groups]
+                     if fusion_policy is not None else None)
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -240,7 +250,7 @@ class GlobalTrackRepository:
                     semantic_classes.discard(None)
                     class_name = (next(iter(semantic_classes))
                                   if len(semantic_classes) == 1 else "")
-                    snapshots.append({
+                    entry = {
                         "global_id": global_id,
                         "class_name": class_name,
                         "class_id": members[0].class_id,
@@ -253,9 +263,20 @@ class GlobalTrackRepository:
                         "end_event_time_ns": max(t.end_ns for t in members),
                         "source_count": len({t.key.node for t in members}),
                         "representative": representative,
+                        # This field describes the existing published 3D
+                        # representative, not the experimental CI sidecar.
                         "fusion": "NOT_FUSED",
                         "assignment_method": solver_name,
-                    })
+                    }
+                    if estimates is not None:
+                        evaluation = estimates[i]
+                        entry["fusion_estimate"] = evaluation.get("estimate")
+                        entry["fusion_estimate_status"] = (
+                            "experimental_ci" if evaluation["accepted"]
+                            else "rejected")
+                        entry["fusion_rejection_reason"] = evaluation["reason"]
+                        entry["fusion_diagnostics"] = evaluation["diagnostics"]
+                    snapshots.append(entry)
 
                 # Revisions are append-only and must be stored in the SAME
                 # transaction as updated membership/world snapshot.
@@ -291,6 +312,11 @@ class GlobalTrackRepository:
                     "schema_major": 1,
                     "world_revision": world_revision,
                     "association_status": "conservative_baseline_not_joint_fusion",
+                    "fusion_mode": ("experimental_ci_sidecar_not_published"
+                                    if fusion_policy is not None else "off"),
+                    "experimental_fusion_accepted": (
+                        sum(1 for item in estimates if item["accepted"])
+                        if estimates is not None else 0),
                     "clock_policy": "explicitly_verified_sources_only",
                     "alignment_policy": {
                         node: {"alignment_id": v.alignment_id,
