@@ -277,7 +277,18 @@ def _candidate(a: Tracklet, b: Tracklet,
     # sources provide valid tangent covariance. The two rays must already
     # belong to the same VERIFIED frame/clock/map; near-parallel rays are
     # uninformative, not an invitation to invent depth by triangulation.
-    ray_a, ray_b = read_ray(oa.bearing), read_ray(ob.bearing)
+    # Edge bearing and world localization may refer to different samples
+    # inside a TrackEvent. Compare in the source clock domain before using
+    # the two rays as evidence; unknown time relation => no bearing veto.
+    def aligned_ray(obs):
+        if type(obs.bearing) is not dict:
+            return None
+        when = obs.bearing.get("timestamp_ns")
+        if type(when) is not int or when <= 0 or abs(when - obs.event_ns) > 250_000_000:
+            return None
+        return read_ray(obs.bearing)
+
+    ray_a, ray_b = aligned_ray(oa), aligned_ray(ob)
     bearing_evidence = "position-only"
     if ray_a is not None and ray_b is not None:
         consistent, bearing_evidence, _ = bearing_pair_consistent(
