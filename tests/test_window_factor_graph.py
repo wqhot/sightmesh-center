@@ -74,6 +74,8 @@ def observed(node, i, timestamp_ns, camera, target,
 def config(**overrides):
     return WindowPolicy.from_dict({
         "independent_source_errors_verified": True,
+        "bearing_world_pose_frame_verified": True,
+        "stationary_target_verified": True,
         "model": "static_position",
         "allow_single_position_anchor": False,
         **overrides
