@@ -45,7 +45,7 @@ python3 -m sightmesh_center --config config/center.json associate \
 
 ## 5. 最终集中测试（目前未运行）
 
-- `tests/test_fusion_ci.py`：强相关/完全相同输入不能按独立样本虚假缩小方差，互补各向异性协方差、Bearer/角度观测矛盾、无效/迟到时间，身份合并拆分后估计清理。
+- `tests/test_fusion_ci.py`：强相关/完全相同输入不能按独立样本虚假缩小方差，互补各向异性协方差、Bearing/角度观测矛盾、无效/迟到时间，身份合并拆分后估计清理。
 - 真实/仿真不同帧率（5/10/20/30 FPS），时钟 offset/uncertainty、UKF/GTSAM 协方差标定、NEES/NIS、实际定位 3D RMSE 和不同机动速度下的误差覆盖率。
 - 重复运行确定性、不同 node 顺序、极端病态 covariance、协方差被网络序列化截断、关联跨地图修订、断电后 WorldRevision 与 sidecar 一致性。
 - D2000 ARM64 Python 标准库运行开销、全历史重建 O(N²) 上限、SQLite WAL 写入、Render HTTP/Wire 兼容性。
