@@ -69,6 +69,8 @@
     "max_observations": 64,
     "independent_source_errors_verified": false,
     "independent_temporal_errors_verified": false,
+    "bearing_world_pose_frame_verified": false,
+    "stationary_target_verified": false,
     "allow_single_position_anchor": true
   },
   "runtime": {
