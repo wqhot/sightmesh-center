@@ -1,5 +1,7 @@
 # sightmesh-center
 
+Center 新增可选 [可观测滑窗方位/位置因子优化实验](docs/window-factor-graph-experiment.md)。仅显式开启 `associate --window-factors` 才运行；要求真正可信的地图/相机位姿与独立因子假设，结果只存 GlobalTrack 旁路，不替换正式代表位置。
+
 Center 多节点实验性位置估计参见 [协方差交集 CI + Bearing 几何否决](docs/conservative-ci-fusion.md)。只有显式加 `associate --fusion ci` 才计算旁路估计；当前 Render 仍展示原始单来源代表位置，**不会把 CI 的未校准协方差当成已验证定位精度**。
 
 Center V2 可选的 [方位几何约束、三节点以上完整候选团与 Protobuf NNG WorldState 发布](docs/association-v2-bearing-world-wire.md) 已在独立功能分支实现；默认不启动，保持 `fusion=NOT_FUSED`。
