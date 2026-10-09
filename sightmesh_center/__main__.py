@@ -95,7 +95,7 @@ def main():
     associate.add_argument('--db', type=Path, default=Path(
         settings.get('ingest', {}).get('db', 'data/track-inbox.sqlite3')))
     associate.add_argument('--policy', type=Path, help='独立 JSON 策略文件；默认使用 center.json 的 association')
-    associate.add_argument('--solver', choices=('greedy', 'ortools'), default='greedy')
+    associate.add_argument('--solver', choices=('greedy', 'ortools', 'clique'), default='greedy')
     associate.add_argument('--max-events', type=int, default=200000)
     associate.add_argument('--watch', action='store_true', help='按周期重新评估，不是系统守护服务')
     associate.add_argument('--interval', type=float, default=2.0)

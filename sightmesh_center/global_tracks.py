@@ -18,6 +18,7 @@ from typing import Any
 from .association_v1 import (
     AssociationPolicy, GreedySolver, OrToolsSolver, propose_candidates)
 from .tracklets import Tracklet, load_committed_tracklets
+from .association_v2 import form_consistent_groups
 
 
 def _canonical(value: Any) -> str:
@@ -132,17 +133,17 @@ class GlobalTrackRepository:
                   max_events: int = 200_000) -> dict:
         tracks = load_committed_tracklets(self.database, max_events)
         pairs = propose_candidates(tracks, policy)
-        if solver_name == "greedy":
-            selected = GreedySolver().select(tracks, pairs)
-        elif solver_name == "ortools":
-            selected = OrToolsSolver().select(tracks, pairs)
+        if solver_name == "clique":
+            grouped, selected = form_consistent_groups(tracks, pairs)
+        elif solver_name in ("greedy", "ortools"):
+            # Existing v1 solver semantics remain unchanged for comparison.
+            selected = (GreedySolver() if solver_name == "greedy"
+                        else OrToolsSolver()).select(tracks, pairs)
+            grouped = [{edge.left, edge.right} for edge in selected]
+            paired = set().union(*grouped) if grouped else set()
+            grouped += [{i} for i in range(len(tracks)) if i not in paired]
         else:
-            raise ValueError("solver must be greedy or ortools")
-        # Strict V1: only one-to-one, disjoint two-node pairs. Never build
-        # transitive multi-node cliques from pairwise edges alone.
-        grouped = [{edge.left, edge.right} for edge in selected]
-        paired = set().union(*grouped) if grouped else set()
-        grouped += [{i} for i in range(len(tracks)) if i not in paired]
+            raise ValueError("solver must be greedy, ortools or clique")
 
         # This signature covers *all committed history* and the complete
         # explicit alignment policy, not arrival times or wall clock time.
@@ -154,12 +155,14 @@ class GlobalTrackRepository:
                 "sources": {node: vars(cfg) for node, cfg in policy.sources.items()},
                 **{k: getattr(policy, k) for k in (
                     "max_pair_dt_s", "maximum_speed_mps", "maximum_sigma_m",
-                    "max_mahalanobis_sq", "min_quality", "clock_error_gate_s")}
+                    "max_mahalanobis_sq", "min_quality", "clock_error_gate_s",
+                    "minimum_ray_crossing_deg", "maximum_ray_separation_sigma")}
             },
             "solver": solver_name,
             "class_labels": policy.class_labels,
             "selected": [(tracks[e.left].uid, tracks[e.right].uid,
-                          round(e.d2, 8)) for e in selected],
+                          round(e.d2, 8), e.evidence) for e in selected],
+            "groups": [sorted(tracks[i].uid for i in g) for g in grouped],
         }).encode()).hexdigest()
 
         # Sort stable groups and calculate previous membership ownership.
@@ -242,7 +245,8 @@ class GlobalTrackRepository:
                         "class_name": class_name,
                         "class_id": members[0].class_id,
                         "identity_revision": identity_revision,
-                        "status": ("associated_pair" if len(members) == 2 else
+                        "status": ("associated_group" if len(members) >= 3 else
+                                   "associated_pair" if len(members) == 2 else
                                    "provisional" if representative else "unlocalized"),
                         "members": sorted(new_set),
                         "start_event_time_ns": min(t.start_ns for t in members),
@@ -291,12 +295,17 @@ class GlobalTrackRepository:
                     "alignment_policy": {
                         node: {"alignment_id": v.alignment_id,
                                "coordinate_frame_id": v.coordinate_frame_id,
-                               "map_revision": v.map_revision}
+                               "map_revision": v.map_revision,
+                               "clock_domain": v.domain,
+                               "clock_uncertainty_ns": v.clock_uncertainty_ns}
                         for node, v in policy.sources.items()
                     },
                     "solver": solver_name,
                     "candidate_count": len(pairs),
                     "selected_pair_count": len(selected),
+                    "associated_group_count": sum(1 for group in grouped if len(group) >= 3),
+                    "association_evidence": "pairwise_clique_no_joint_state_fusion"
+                        if solver_name == "clique" else "one_to_one_no_joint_state_fusion",
                     "global_tracks": sorted(snapshots,
                                             key=lambda x: x["global_id"]),
                     "last_identity_revision": revision,

@@ -11,6 +11,7 @@ import math
 from typing import Protocol
 
 from .tracklets import Tracklet, Observation
+from .bearing_geometry import read_ray, bearing_pair_consistent
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,8 @@ class AssociationPolicy:
     max_mahalanobis_sq: float = 11.344866730144373  # chi2_3 99%
     min_quality: float = 0.0
     clock_error_gate_s: float = 0.05
+    minimum_ray_crossing_deg: float = 3.0
+    maximum_ray_separation_sigma: float = 4.0
 
     @staticmethod
     def from_dict(configuration: dict) -> "AssociationPolicy":
@@ -87,6 +90,8 @@ class AssociationPolicy:
             "max_mahalanobis_sq": (0.1, 100),
             "min_quality": (0, 1),
             "clock_error_gate_s": (0, 1),
+            "minimum_ray_crossing_deg": (0.1, 40),
+            "maximum_ray_separation_sigma": (0.1, 10),
         }
         for name, (low, high) in limits.items():
             value = configuration.get(name, getattr(AssociationPolicy, name))
@@ -267,10 +272,37 @@ def _candidate(a: Tracklet, b: Tracklet,
     distance = math.sqrt(sum(x * x for x in diff))
     if distance > policy.maximum_speed_mps * dt + 3.5 * sigma:
         return None
-    # Lower cost is better, but no unverified appearance, range or map
-    # semantic evidence is fabricated.
+
+    # Bearing observations are independent geometric evidence when both
+    # sources provide valid tangent covariance. The two rays must already
+    # belong to the same VERIFIED frame/clock/map; near-parallel rays are
+    # uninformative, not an invitation to invent depth by triangulation.
+    # Edge bearing and world localization may refer to different samples
+    # inside a TrackEvent. Compare in the source clock domain before using
+    # the two rays as evidence; unknown time relation => no bearing veto.
+    def aligned_ray(obs):
+        if type(obs.bearing) is not dict:
+            return None
+        when = obs.bearing.get("timestamp_ns")
+        if type(when) is not int or when <= 0 or abs(when - obs.event_ns) > 250_000_000:
+            return None
+        return read_ray(obs.bearing)
+
+    ray_a, ray_b = aligned_ray(oa), aligned_ray(ob)
+    bearing_evidence = "position-only"
+    if ray_a is not None and ray_b is not None:
+        consistent, bearing_evidence, _ = bearing_pair_consistent(
+            ray_a, ray_b, sigma, policy.maximum_speed_mps * dt,
+            policy.minimum_ray_crossing_deg,
+            policy.maximum_ray_separation_sigma)
+        if not consistent:
+            return None
+
+    # No covariance fusion, triangulation, appearance score or map semantics
+    # are fabricated. Ray evidence can reject a conflicting pair but does
+    # not lower cost as if it were independent Gaussian confidence.
     cost = d2 + 0.25 * abs(delta) / max(policy.max_pair_dt_s, 1e-6)
-    return PairCandidate(-1, -1, cost, d2, abs(delta))
+    return PairCandidate(-1, -1, cost, d2, abs(delta), bearing_evidence)
 
 
 def propose_candidates(tracklets: list[Tracklet],
