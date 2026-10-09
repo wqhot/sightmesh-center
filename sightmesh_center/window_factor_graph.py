@@ -38,6 +38,8 @@ class WindowPolicy:
     max_observations: int = 64
     independent_source_errors_verified: bool = False
     independent_temporal_errors_verified: bool = False
+    bearing_world_pose_frame_verified: bool = False
+    stationary_target_verified: bool = False
     allow_single_position_anchor: bool = True
 
     @classmethod
@@ -69,7 +71,10 @@ class WindowPolicy:
         if type(params["max_observations"]) is not int or not 4 <= params["max_observations"] <= 256:
             raise ValueError("invalid max_observations")
         for key in ("independent_source_errors_verified",
-                    "independent_temporal_errors_verified", "allow_single_position_anchor"):
+                    "independent_temporal_errors_verified",
+                    "bearing_world_pose_frame_verified",
+                    "stationary_target_verified",
+                    "allow_single_position_anchor"):
             if type(params[key]) is not bool:
                 raise ValueError("invalid boolean window gate " + key)
         return cls(**params)
@@ -129,6 +134,10 @@ def estimate_window(group: list[Tracklet], align: AssociationPolicy,
         return _refuse("requires_preassociated_multi_node_group")
     if not cfg.independent_source_errors_verified:
         return _refuse("independent_source_errors_not_verified")
+    if not cfg.bearing_world_pose_frame_verified:
+        return _refuse("bearing_camera_pose_frame_not_verified")
+    if cfg.model == "static_position" and not cfg.stationary_target_verified:
+        return _refuse("static_motion_model_not_verified")
     try:
         import numpy as np
         from scipy.optimize import least_squares
