@@ -5,6 +5,12 @@ shape emitted by Edge JsonProtocolCodec including tangent_basis_world.
 """
 import math
 import unittest
+import json
+from pathlib import Path
+import tempfile
+
+from sightmesh_center.global_tracks import GlobalTrackRepository
+from sightmesh_center.track_inbox import DurableInbox
 
 from sightmesh_center.association_v1 import AssociationPolicy
 from sightmesh_center.tracklets import TrackKey, Observation, Tracklet
@@ -185,6 +191,62 @@ class WindowFactorTests(unittest.TestCase):
         answer=estimate_window([first,second],alignment(["uav","ugv"]),config())
         self.assertTrue(answer["accepted"], answer)
         self.assertEqual(answer["diagnostics"]["bearing_factor_count"],2)
+
+    def test_durable_group_sidecar_recomputed_on_identity_split(self):
+        self._require_solver()
+        truth=(10.0,5.0,3.0)
+        with tempfile.TemporaryDirectory() as temporary:
+            db=Path(temporary)/"inbox.sqlite3"
+            inbox=DurableInbox(db)
+            def commit(node, seq, when, camera, position):
+                value={
+                    "node_id":node, "camera_id":"camera0",
+                    "session_id":1, "local_id":1,
+                    "event_id":f"{node}/{seq}","seq":seq,
+                    "type":"start" if seq == 1 else "update",
+                    "frame_id":seq,"class_id":0,
+                    "event_time_ns":when,"blobs":[],
+                    "spatial":{
+                        "world":{
+                            "valid":True,"coordinate_frame_id":"local_enu_v1",
+                            "x_m":position[0],"y_m":position[1],"z_m":position[2],
+                            "position_covariance_m2":[1,0,0,0,1,0,0,0,1],
+                            "quality":0.9
+                        },
+                        "bearing":ray_measurement(camera,position,when),
+                        "localization_quality":{
+                            "map":{"valid":True,"revision":"map-v1"}
+                        }
+                    }
+                }
+                inbox.store_batch(json.dumps({
+                    "version":1,"events":[value]
+                }).encode())
+            commit("uav",1,1_000_000_000,(0,0,0),truth)
+            commit("ugv",1,1_000_000_000,(0,10,0),truth)
+            repo=GlobalTrackRepository(db)
+            shared=alignment(["uav","ugv"])
+            settings=config(allow_single_position_anchor=True)
+            old=repo.recompute(shared,"clique",window_policy=settings)
+            self.assertEqual(len(old["global_tracks"]),1)
+            self.assertEqual(old["global_tracks"][0]["fusion"],"NOT_FUSED")
+            self.assertEqual(old["experimental_window_accepted"],1)
+            self.assertEqual(old["global_tracks"][0]["window_estimate_status"],
+                             "experimental_conditional")
+            self.assertEqual(repo.recompute(
+                shared,"clique",window_policy=settings)["world_revision"],
+                             old["world_revision"])
+            # Incompatible late observation splits identity. Both new
+            # singleton sidecars must be REJECTED, not stale merged results.
+            commit("ugv",2,1_020_000_000,(0,10,0),(200,5,3))
+            new=repo.recompute(shared,"clique",window_policy=settings)
+            self.assertGreater(new["world_revision"],old["world_revision"])
+            self.assertEqual(len(new["global_tracks"]),2)
+            self.assertEqual(new["experimental_window_accepted"],0)
+            self.assertTrue(all(t["window_estimate"] is None
+                                for t in new["global_tracks"]))
+            self.assertGreater(new["last_identity_revision"],
+                               old["last_identity_revision"])
 
     def test_stale_bearing_or_invalid_frame_fails_without_solution(self):
         self._require_solver()
