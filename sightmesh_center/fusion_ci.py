@@ -200,6 +200,9 @@ def estimate_group(
                 or obs.map_revision != source.map_revision:
             return {"accepted": False, "reason": "clock_map_or_class_mismatch",
                     "diagnostics": {}}
+        if obs.quality < alignment.min_quality:
+            return {"accepted": False, "reason": "source_localization_quality_below_gate",
+                    "diagnostics": {}}
         if source.clock_uncertainty_ns/1e9 > config.max_clock_uncertainty_s:
             return {"accepted": False, "reason": "clock_uncertainty_unverified",
                     "diagnostics": {}}
@@ -221,6 +224,9 @@ def estimate_group(
     times = sorted(item[3] for item in sources)
     epoch = times[len(times)//2] if len(times)%2 else (times[
         len(times)//2-1]+times[len(times)//2])//2
+    if epoch < 0:
+        return {"accepted": False, "reason": "aligned_event_time_negative",
+                "diagnostics": {"epoch_time_ns": epoch}}
     positions = []
     for tracklet, source, obs, timestamp in sources:
         dt = (epoch-timestamp)/1e9
