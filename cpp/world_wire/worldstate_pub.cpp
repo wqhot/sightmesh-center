@@ -172,8 +172,12 @@ bool makeState(const Json::Value& world, v1::Envelope& out) {
             continue;
         }
         track->set_alignment_id(align["alignment_id"].asString());
+        // Raw Edge sensor event time remains in the operator-verified
+        // source domain, NOT Center's UNIX publication clock.
         track->set_source_clock_domain(
-            "source-event-domain-not-guaranteed-utc");
+            align["clock_domain"].isString()
+                ? align["clock_domain"].asString()
+                : "unspecified");
         track->set_representative_source_tracklet(
             rep["source_tracklet"].asString());
         track->set_source_event_time_ns(rep["event_time_ns"].asUInt64());
