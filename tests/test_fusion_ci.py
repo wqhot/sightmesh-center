@@ -127,7 +127,7 @@ class ExperimentalFusionTests(unittest.TestCase):
     def test_unobservable_bearing_does_not_shrink_ci_covariance(self):
         self.insert(
             event("a", 1, 10, direction=(1,0,0), observer=(0,2,3)),
-            event("b", 1, 10, direction=(1,0,0), observer=(0,-8,3)),
+            event("b", 1, 10, direction=(1,0,0), observer=(1,2,3)),
         )
         answer = self.fusion()
         self.assertTrue(answer["accepted"])
