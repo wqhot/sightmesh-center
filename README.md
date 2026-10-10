@@ -10,6 +10,33 @@ Center Tracklet 重建、可选 OR-Tools 求解、持久 GlobalTrack 与 Identit
 
 可靠事件接入另有**可选**的 [TrackEvent/Blob 持久 Inbox](docs/reliable-track-inbox.md)，与当前地图查询服务分端口部署；全局关联及 NNG 可靠事件仍未实现。
 
+## 文档导航（当前最新 Center 试验分支）
+
+当前代码对应 `feat/observable-sliding-window-factors`。地图查询是稳定的既有基线；TrackEvent/Tracklet/GlobalTrack、CI 与滑窗因子估计属于**显式启用的实验性功能**，不可将其视为已完成跨节点标定和可靠关联的生产验收。
+
+### 地图服务
+
+- [docs/map-api.md](docs/map-api.md)
+- [docs/geographiclib.md](docs/geographiclib.md)
+
+### 可靠事件与 Tracklet
+
+- [docs/reliable-track-inbox.md](docs/reliable-track-inbox.md)
+- [docs/tracklet-association-v1.md](docs/tracklet-association-v1.md)
+- [docs/association-v2-bearing-world-wire.md](docs/association-v2-bearing-world-wire.md)
+
+### 实验性位置估计
+
+- [docs/conservative-ci-fusion.md](docs/conservative-ci-fusion.md)
+- [docs/window-factor-graph-experiment.md](docs/window-factor-graph-experiment.md)
+
+### 场景资源
+
+- [assets/industrial-park/README.md](assets/industrial-park/README.md)
+- [assets/industrial-park/cesium/terrain-provider/README.md](assets/industrial-park/cesium/terrain-provider/README.md)
+
+跨仓库：[工作区最新 Wire 分支](https://github.com/wqhot/sightmesh/blob/feat/wire-default-enabled/README.md) · [Edge 最新 Wire 分支](https://github.com/wqhot/sightmesh-edge/blob/feat/wire-v1-default-enabled/README.md) · [Sim](https://github.com/wqhot/sightmesh-sim/blob/main/README.md) · [Render 最新 Wire 分支](https://github.com/wqhot/sightmesh-render/blob/feat/wire-v1-default-enabled/README.md)。
+
 ## 统一配置入口
 
 每个组件只有一个需要维护的运行配置文件。环境变量不再覆盖应用参数；命令行参数可用于单次运行覆盖。
@@ -38,7 +65,7 @@ cd sightmesh-center
 python3 -m sightmesh_center render-config
 ```
 
-`sightmesh-center` 是 SightMesh 中心侧能力的运行载体，目标是承载[设计 6.5《中心跨节点全局关联与三维状态融合》](../sightmesh-designing/06_05_中心跨节点全局关联与三维状态融合.md)和[设计 6.6《世界模型与地图查询》](../sightmesh-designing/06_06_世界模型与地图查询.md)。目前仅实现基础地图服务：版本化地图包导入、只读几何查询和 Cesium 地形/建筑资源提供；跨节点全局关联、三维状态融合及完整世界模型尚未实现。
+`sightmesh-center` 是 SightMesh 中心侧能力的运行载体，目标是承载[设计 6.5《中心跨节点全局关联与三维状态融合》](../sightmesh-designing/06_05_中心跨节点全局关联与三维状态融合.md)和[设计 6.6《世界模型与地图查询》](../sightmesh-designing/06_06_世界模型与地图查询.md)。既有稳定入口为版本化地图导入、只读几何查询和 Cesium 资源服务；本功能分支新增可选 TrackEvent 持久化、Tracklet/GlobalTrack 关联、CI 和窗口因子实验，但这些功能默认不代表正式跨节点融合验收，完整世界模型仍未交付。
 
 `sightmesh-sim` 维护地图源文件和转换工具；地图 HTTP 服务统一从 center 启动。center 将重建版静态网格转换为不可变定位地图包，并将 Cesium 显示资源固化到同一版本，提供最近表面候选、射线首个命中、遮挡查询、定位数据下载及 Cesium 地形/建筑资源。edge 可下载地图包并在本地使用 `Map.query`，实时定位无需逐帧访问中心。Python 3.9+，运行与测试只依赖标准库，不要求安装 Blender、Gazebo、Cesium 或 ROS。
 
