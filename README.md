@@ -1,5 +1,19 @@
 # sightmesh-center
 
+## 文档导航
+
+本 README 是 Center 运行与地图服务入口，以下专项文档均属于本仓库 main：
+
+- [地图查询 API 与时间、版本、坐标约定](docs/map-api.md)
+- [GeographicLib 可选后端与 WGS84 坐标转换](docs/geographiclib.md)
+- [工业园演示场景及资产说明](assets/industrial-park/README.md)
+- [演示 quantized-mesh 地形占位层](assets/industrial-park/cesium/terrain-provider/README.md)
+
+跨组件入口：[SightMesh 工作区](https://github.com/wqhot/sightmesh/blob/master/README.md) · [Edge](https://github.com/wqhot/sightmesh-edge/blob/dev/README.md) · [Sim](https://github.com/wqhot/sightmesh-sim/blob/main/README.md) · [Render](https://github.com/wqhot/sightmesh-render/blob/main/README.md)。
+
+> 演示地图不是测绘数据；本文档描述已实现的静态地图能力，不能将尚未交付的跨节点 ReID / 全局关联规划写成当前功能。
+
+
 ## 统一配置入口
 
 每个组件只有一个需要维护的运行配置文件。环境变量不再覆盖应用参数；命令行参数可用于单次运行覆盖。
