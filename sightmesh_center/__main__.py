@@ -98,6 +98,8 @@ def main():
     associate.add_argument('--solver', choices=('greedy', 'ortools', 'clique'), default='greedy')
     associate.add_argument('--fusion', choices=('off', 'ci'), default='off',
                            help='显式开启实验性 CI 位置估计；仅存储旁路结果，不覆盖正式位置')
+    associate.add_argument('--window-factors', action='store_true',
+                           help='显式运行滑窗方位/位置因子估计；须经独立性/几何秩验证，输出仅作旁路')
     associate.add_argument('--max-events', type=int, default=200000)
     associate.add_argument('--watch', action='store_true', help='按周期重新评估，不是系统守护服务')
     associate.add_argument('--interval', type=float, default=2.0)
@@ -120,6 +122,7 @@ def main():
         from .association_v1 import AssociationPolicy
         from .global_tracks import GlobalTrackRepository
         from .fusion_ci import FusionPolicy
+        from .window_factor_graph import WindowPolicy
         try:
             raw_policy = (json.loads(args.policy.read_text(encoding='utf-8'))
                           if args.policy else configuration.get('association', {}))
@@ -129,10 +132,14 @@ def main():
             fusion_policy = (FusionPolicy.from_dict(
                 configuration.get('fusion', {}))
                 if args.fusion == 'ci' else None)
+            window_policy = (WindowPolicy.from_dict(
+                configuration.get('window_factor_graph', {}))
+                if args.window_factors else None)
             repository = GlobalTrackRepository(args.db)
             while True:
                 state = repository.recompute(
-                    policy, args.solver, args.max_events, fusion_policy)
+                    policy, args.solver, args.max_events,
+                    fusion_policy=fusion_policy, window_policy=window_policy)
                 print(json.dumps({
                     'world_revision': state['world_revision'],
                     'global_track_count': len(state['global_tracks']),
@@ -141,6 +148,9 @@ def main():
                     'experimental_fusion_accepted':
                         state.get('experimental_fusion_accepted', 0),
                     'fusion_mode': state.get('fusion_mode', 'off'),
+                    'window_factor_mode': state.get('window_factor_mode', 'off'),
+                    'experimental_window_accepted':
+                        state.get('experimental_window_accepted', 0),
                     'last_identity_revision': state['last_identity_revision'],
                 }, ensure_ascii=False), flush=True)
                 if not args.watch:
