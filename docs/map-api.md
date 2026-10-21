@@ -50,3 +50,15 @@ result = map_data.query('surface', {
 导入将源资源保存为地图包的 `cesium/` 目录；manifest 的 `cesium_assets` 记录每个资源的 SHA256，并参与地图版本哈希。启动服务时校验后加载快照，不再读取 sim。旧包缺少该字段时仍可查询定位数据，显示资源返回 404；`render-config` 会提示重新导入。
 
 启动 `serve` 时会使用 `center.json` 的当前地图与 `base_url` 更新 Render 配置中的地图地址和 WGS84 原点；也可运行 `python3 -m sightmesh_center render-config` 单独刷新。该配置只连接显示地图；OgrePlayer 的目标流仍来自 edge，center 不提供目标 SSE 流。
+
+## 地图版本变更通知（Edge 缓存更新）
+
+`GET /v1/map/watch?since=<map_revision>&timeout_ms=8000`：长轮询本服务当前地图版本，`since` 为空或 64 位十六进制版本哈希，`timeout_ms` 为 1–10000。响应示例：
+
+```json
+{"map_revision":"<64位哈希>","changed":true}
+```
+
+当前版本与 `since` 不同时立即返回 `changed=true`；相同时等待地图更新（最长指定超时）并返回 `changed=false`。C++ 地图服务以新地图完成校验并切换为通知时点；Python 当前是固定版本服务，仅返回超时或不同版本响应。
+
+通知属于**失效提示**，没有地图包内容。Edge 收到后仍调用 `/v1/map`、哈希 sidecar 和几何下载接口验证发布；客户端应定时兜底检查，网络断线或 404 时继续使用已缓存的上个有效版本。
