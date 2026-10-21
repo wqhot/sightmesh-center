@@ -4,8 +4,10 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import re
+import threading
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .cesium import CesiumAssets
 
@@ -119,7 +121,25 @@ def make_server(map_data, bind='127.0.0.1', port=8080):
                 self.wfile.write(payload)
 
         def do_GET(self):
-            path = urlsplit(self.path).path
+            request_url = urlsplit(self.path)
+            path = request_url.path
+            if path == '/v1/map/watch':
+                params = parse_qs(request_url.query, keep_blank_values=True)
+                since = params.get('since', [''])[0]
+                raw_timeout = params.get('timeout_ms', ['10000'])[0]
+                if len(since) not in (0, 64) or (since and not re.fullmatch(r'[0-9a-fA-F]{64}', since)):
+                    self.reply(400, {'error': 'invalid since revision'}, head=self.command == 'HEAD')
+                    return
+                if not raw_timeout.isascii() or not raw_timeout.isdecimal() or not 1 <= int(raw_timeout) <= 10000:
+                    self.reply(400, {'error': 'invalid timeout_ms'}, head=self.command == 'HEAD')
+                    return
+                revision = map_data.manifest['map_revision']
+                if since == revision and self.command != 'HEAD':
+                    # This Python runtime serves one immutable revision.
+                    threading.Event().wait(int(raw_timeout) / 1000.0)
+                self.reply(200, {'map_revision': revision, 'changed': since != revision},
+                           head=self.command == 'HEAD')
+                return
             if path.startswith('/maps/') and path.endswith('/manifest.json'):
                 map_id = unquote(path[len('/maps/'):-len('/manifest.json')].rstrip('/'))
                 if map_id == map_data.manifest.get('map_id'):

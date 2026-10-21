@@ -161,6 +161,20 @@ class ServiceTests(unittest.TestCase):
             with urlopen(base+'/v1/map') as response:
                 manifest = json.load(response)
             self.assertEqual(manifest['map_revision'], self.context['map_revision'])
+            # Notifications: new revision is immediate; same revision times out.
+            with urlopen(base+'/v1/map/watch?since=&timeout_ms=20') as response:
+                event = json.load(response)
+            self.assertEqual(event, {'map_revision': manifest['map_revision'],
+                                     'changed': True})
+            with urlopen(base+'/v1/map/watch?since=' +
+                         manifest['map_revision'] + '&timeout_ms=20') as response:
+                event = json.load(response)
+            self.assertEqual(event, {'map_revision': manifest['map_revision'],
+                                     'changed': False})
+            with self.assertRaises(HTTPError) as watch_error:
+                urlopen(base+'/v1/map/watch?since=bad&timeout_ms=20')
+            self.assertEqual(watch_error.exception.code, 400)
+            watch_error.exception.close()
             with urlopen(base+'/v1/map/geometry.json.gz') as response:
                 self.assertIsNone(response.headers.get('Content-Encoding'))
                 self.assertEqual(response.read(), self.map.geometry_bytes)
