@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -98,6 +100,9 @@ static JValue query(const MapData&m,const std::string&op,const JValue&in){
     throw std::out_of_range("unknown query operation");
 }
 
+static std::mutex mapNotificationMutex;
+static std::condition_variable mapNotificationChanged;
+
 using Request=http::request<http::string_body>;
 using Response=http::response<http::string_body>;
 static Response response(const Request&req,http::status status,std::string body,std::string type="application/json"){
@@ -106,9 +111,49 @@ static Response response(const Request&req,http::status status,std::string body,
 static std::string assetMime(const fs::path&path){auto ext=path.extension().string();if(ext==".json")return "application/json";if(ext==".glb")return "model/gltf-binary";if(ext==".terrain")return "application/vnd.quantized-mesh";if(ext==".png")return "image/png";if(ext==".jpg"||ext==".jpeg")return "image/jpeg";return "application/octet-stream";}
 static Response handle(const Request&req){
     auto map=std::atomic_load(&currentMap);if(!map)return response(req,http::status::service_unavailable,encode(Json::Value(Json::objectValue)));
-    std::string target=req.target().to_string();auto q=target.find('?');if(q!=std::string::npos)target.resize(q);
+    std::string target=req.target().to_string();
+    auto q=target.find('?');
+    const std::string params=q==std::string::npos?"":target.substr(q+1);
+    if(q!=std::string::npos)target.resize(q);
     if(req.method()==http::verb::options)return response(req,http::status::no_content,"");
     if(req.method()==http::verb::get||req.method()==http::verb::head){
+        if(target=="/v1/map/watch"){
+            // Long-poll map revision changes. A client reconnects after every
+            // response; timeout makes missed notifications harmless.
+            std::string after;
+            unsigned timeout_ms=10000;
+            std::istringstream args(params);
+            std::string field;
+            while(std::getline(args,field,'&')){
+                const auto pos=field.find('=');
+                if(pos==std::string::npos)continue;
+                const std::string key=field.substr(0,pos),val=field.substr(pos+1);
+                if(key=="since")after=val;
+                if(key=="timeout_ms"){
+                    try{
+                        const auto requested=std::stoul(val);
+                        if(requested<1||requested>10000)
+                            return response(req,http::status::bad_request,"{\"error\":\"timeout_ms out of range\"}");
+                        timeout_ms=static_cast<unsigned>(requested);
+                    }catch(...){return response(req,http::status::bad_request,"{\"error\":\"invalid timeout_ms\"}");}
+                }
+            }
+            if(after.size()>64||!std::all_of(after.begin(),after.end(),[](unsigned char c){return std::isxdigit(c);}))
+                return response(req,http::status::bad_request,"{\"error\":\"invalid since revision\"}");
+            auto changed=[&after]{
+                const auto current=std::atomic_load(&currentMap);
+                return current && current->manifest["map_revision"].asString()!=after;
+            };
+            if(!changed()){
+                std::unique_lock<std::mutex> lock(mapNotificationMutex);
+                mapNotificationChanged.wait_for(lock,std::chrono::milliseconds(timeout_ms),changed);
+            }
+            const auto latest=std::atomic_load(&currentMap);
+            JValue event(Json::objectValue);
+            event["map_revision"]=latest->manifest["map_revision"];
+            event["changed"]=latest->manifest["map_revision"].asString()!=after;
+            return response(req,http::status::ok,encode(event));
+        }
         if(target=="/healthz"){JValue v(Json::objectValue);v["status"]="ok";v["map_revision"]=map->manifest["map_revision"];return response(req,http::status::ok,encode(v));}
         if(target=="/v1/map"||target=="/maps/"+map->manifest["map_id"].asString()+"/manifest.json")return response(req,http::status::ok,map->manifestBytes);
         if(target=="/v1/map/manifest.sha256"||target=="/maps/"+map->manifest["map_id"].asString()+"/manifest.sha256")return response(req,http::status::ok,map->manifestHash+"\n","text/plain");
@@ -147,7 +192,9 @@ int main(int argc,char**argv){
         for(int i=1;i<argc;i++){std::string a=argv[i];if(i+1>=argc&&a!="--watch")throw std::runtime_error("missing value for "+a);if(a=="--map"){mapDir=argv[++i];source.clear();}else if(a=="--source")source=argv[++i];else if(a=="--output")output=argv[++i];else if(a=="--config")config=argv[++i];else if(a=="--bind")bind=argv[++i];else if(a=="--port"){const int value=std::stoi(argv[++i]);if(value<1||value>65535)throw std::runtime_error("invalid port");port=static_cast<unsigned short>(value);}else if(a=="--watch")watch=true;else throw std::runtime_error("unknown option "+a);}
         if(!source.empty()){mapDir=sightmesh_map::build_map(source,output,config);watch=true;}if(mapDir.empty())throw std::runtime_error("usage: sightmesh-map-server-cpp (--map DIR | --source DIR) [--watch] [--bind IP] [--port N]");
         std::atomic_store(&currentMap,loadMap(mapDir));log("map server loaded revision="+std::atomic_load(&currentMap)->manifest["map_revision"].asString());
-        if(watch&&!source.empty())std::thread([source,output,config]{std::string active=sightmesh_map::source_digest(source,config);while(true){std::this_thread::sleep_for(std::chrono::seconds(2));try{std::string digest=sightmesh_map::source_digest(source,config);if(digest==active)continue;auto path=sightmesh_map::build_map(source,output,config);auto next=loadMap(path);std::atomic_store(&currentMap,next);active=digest;log("map update published revision="+next->manifest["map_revision"].asString());}catch(const std::exception&e){log(std::string("map update rejected; keeping active snapshot: ")+e.what());}}}).detach();
+        if(watch&&!source.empty())std::thread([source,output,config]{std::string active=sightmesh_map::source_digest(source,config);while(true){std::this_thread::sleep_for(std::chrono::seconds(2));try{std::string digest=sightmesh_map::source_digest(source,config);if(digest==active)continue;auto path=sightmesh_map::build_map(source,output,config);auto next=loadMap(path);std::atomic_store(&currentMap,next);
+            mapNotificationChanged.notify_all();
+            active=digest;log("map update published revision="+next->manifest["map_revision"].asString());}catch(const std::exception&e){log(std::string("map update rejected; keeping active snapshot: ")+e.what());}}}).detach();
         asio::io_context ioc;tcp::acceptor acceptor(ioc,{asio::ip::make_address(bind),port});log("listening on "+bind+":"+std::to_string(port));
         for(;;){tcp::socket socket(ioc);acceptor.accept(socket);std::thread(session,std::move(socket)).detach();}
     }catch(const std::exception&e){std::cerr<<"map server failed: "<<e.what()<<"\n";return 1;}
