@@ -1,0 +1,35 @@
+name: center-map-notification
+
+on:
+  push:
+    paths:
+      - "cpp/src/server.cpp"
+      - "sightmesh_center/service.py"
+      - "tests/test_maps.py"
+      - ".github/workflows/map-notification.yml"
+  pull_request:
+    paths:
+      - "cpp/src/server.cpp"
+      - "sightmesh_center/service.py"
+      - "tests/test_maps.py"
+      - ".github/workflows/map-notification.yml"
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Python HTTP map service
+        run: python3 -m unittest discover -s tests -p test_maps.py
+  cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install C++ dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libassimp-dev libjsoncpp-dev libssl-dev zlib1g-dev libboost-system-dev
+      - name: Build Center C++ map server
+        run: |
+          cmake -S cpp -B build/map-notification
+          cmake --build build/map-notification --target sightmesh-map-server-cpp -j 2
