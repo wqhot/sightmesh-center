@@ -111,7 +111,7 @@ static Response response(const Request&req,http::status status,std::string body,
 static std::string assetMime(const fs::path&path){auto ext=path.extension().string();if(ext==".json")return "application/json";if(ext==".glb")return "model/gltf-binary";if(ext==".terrain")return "application/vnd.quantized-mesh";if(ext==".png")return "image/png";if(ext==".jpg"||ext==".jpeg")return "image/jpeg";return "application/octet-stream";}
 static Response handle(const Request&req){
     auto map=std::atomic_load(&currentMap);if(!map)return response(req,http::status::service_unavailable,encode(Json::Value(Json::objectValue)));
-    std::string target=req.target().to_string();
+    std::string target(req.target().data(),req.target().size());
     auto q=target.find('?');
     const std::string params=q==std::string::npos?"":target.substr(q+1);
     if(q!=std::string::npos)target.resize(q);
